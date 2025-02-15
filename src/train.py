@@ -26,16 +26,17 @@ from transformers import (
 
 print("torch version: ", torch.version.cuda)
 
-from hf_config import get_config
-from hf_model import get_hf_models
+from models.hf_config import get_config
+from models.hf_model import get_hf_models
 
-from callbacks import (
+from trainer.callbacks import (
     ComputeThroughputCallback,
     TokenCountCallback,
     OverrideGlobalStepCallback,
 )
-from prepare_dataset import prepare_dataset
-from hinshi_encoder import build_hinshi_tokenize
+from utils.prepare_dataset import prepare_dataset
+
+# from utils.hinshi_encoder import build_hinshi_tokenize
 
 MAX_TOKENS = 8 * 1000 * 1000 * 1000
 
@@ -64,7 +65,7 @@ def parse_arguments():
     parser = argparse.ArgumentParser()
     parser.add_argument("--output_dir", type=str, required=True)
     parser.add_argument("--model_name", type=str, required=True)
-    parser.add_argument("--wandb_project", type=str, required=True)
+    parser.add_argument("--wandb_project", type=str)
     # parser.add_argument("--wandb_entity", type=str, required=True)
     parser.add_argument("--upload_repo_id", type=str)
     parser.add_argument(
@@ -141,12 +142,15 @@ def load_model_with_sub_layer(base_model, to_model):
 def main():
     args = parse_arguments()
     # wandb.init(project=args.wandb_project, entity=args.wandb_entity)
-    wandb.init(project=args.wandb_project)
+    if args.wandb_project:
+        print(f"init wandb {args.wandb_project}")
+        wandb.init(project=args.wandb_project)
 
     tokenizer = AutoTokenizer.from_pretrained(args.tokenizer)
     tokenizer.pad_token = tokenizer.eos_token
     tokenizer.mask_token = tokenizer.eos_token
-    encoder = build_hinshi_tokenize(tokenizer, rate=args.mask_rate)
+    # encoder = build_hinshi_tokenize(tokenizer, rate=args.mask_rate)
+    encoder = None
     print("vocab:", tokenizer.vocab_size)
     config = get_config(args.model_name)
     config["vocab_size"] = len(tokenizer.get_vocab())
@@ -156,31 +160,21 @@ def main():
     config["pad_token_id"] = tokenizer.pad_token_id
 
     model = get_hf_models(config)
-    if args.to_model_name and args.from_model_path:
-        from safetensors.torch import load_file
+    # if args.to_model_name and args.from_model_path:
+    #     from safetensors.torch import load_file
 
-        print("load sub layer weight...", args.to_model_name)
-        _to_model_config = get_config(args.to_model_name)
-        _to_model_config["vocab_size"] = len(tokenizer.get_vocab())
-        # config["vocab_size"] = tokenizer.vocab_size
-        _to_model_config["bos_token_id"] = tokenizer.bos_token_id
-        _to_model_config["eos_token_id"] = tokenizer.bos_token_id
-        _to_model_config["pad_token_id"] = tokenizer.pad_token_id
-        to_model = get_hf_models(_to_model_config)
-        safetensors_path = f"{args.from_model_path}/model.safetensors"
-        checkpoint = load_file(safetensors_path)
-        ## debug before load
-        # base_model_w = model.model.layers[0].state_dict()
-        # for k, v in base_model_w.items():
-        #   print(k, v[:3])
-        # print(':'*100)
-        model.load_state_dict(checkpoint)
-        model = load_model_with_sub_layer(model, to_model)
-        ## debug after load
-        # base_model_w = model.model.layers[0].state_dict()
-        # for k, v in base_model_w.items():
-        #   print(k, v[:3])
-        # print(':'*100)
+    #     print("load sub layer weight...", args.to_model_name)
+    #     _to_model_config = get_config(args.to_model_name)
+    #     _to_model_config["vocab_size"] = len(tokenizer.get_vocab())
+    #     # config["vocab_size"] = tokenizer.vocab_size
+    #     _to_model_config["bos_token_id"] = tokenizer.bos_token_id
+    #     _to_model_config["eos_token_id"] = tokenizer.bos_token_id
+    #     _to_model_config["pad_token_id"] = tokenizer.pad_token_id
+    #     to_model = get_hf_models(_to_model_config)
+    #     safetensors_path = f"{args.from_model_path}/model.safetensors"
+    #     checkpoint = load_file(safetensors_path)
+    #     model.load_state_dict(checkpoint)
+    #     model = load_model_with_sub_layer(model, to_model)
 
     # model.vocab_size = len(tokenizer.get_vocab())
     # print("model.vocab_size", model.vocab_size)

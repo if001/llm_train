@@ -1,0 +1,14 @@
+{"time":"2025-02-15T19:34:12.247450249+09:00","level":"INFO","msg":"stream: starting","core version":"0.19.6","symlink path":"/home/issei/prog/python/llm_train/wandb/offline-run-20250215_193410-6o51iyjj/logs/debug-core.log"}
+{"time":"2025-02-15T19:34:12.39725074+09:00","level":"INFO","msg":"created new stream","id":"6o51iyjj"}
+{"time":"2025-02-15T19:34:12.39730854+09:00","level":"INFO","msg":"stream: started","id":"6o51iyjj"}
+{"time":"2025-02-15T19:34:12.39737674+09:00","level":"INFO","msg":"writer: Do: started","stream_id":"6o51iyjj"}
+{"time":"2025-02-15T19:34:12.39745224+09:00","level":"INFO","msg":"handler: started","stream_id":"6o51iyjj"}
+{"time":"2025-02-15T19:34:12.39802704+09:00","level":"INFO","msg":"sender: started","stream_id":"6o51iyjj"}
+{"time":"2025-02-15T19:34:12.411311939+09:00","level":"INFO","msg":"Starting system monitor"}
+{"time":"2025-02-15T19:34:14.181202136+09:00","level":"INFO","msg":"stream: closing","id":"6o51iyjj"}
+{"time":"2025-02-15T19:34:14.188417536+09:00","level":"INFO","msg":"Stopping system monitor"}
+{"time":"2025-02-15T19:34:14.189229236+09:00","level":"INFO","msg":"Stopped system monitor"}
+{"time":"2025-02-15T19:34:14.197745535+09:00","level":"INFO","msg":"handler: closed","stream_id":"6o51iyjj"}
+{"time":"2025-02-15T19:34:14.197788535+09:00","level":"INFO","msg":"writer: Close: closed","stream_id":"6o51iyjj"}
+{"time":"2025-02-15T19:34:14.197830535+09:00","level":"INFO","msg":"sender: closed","stream_id":"6o51iyjj"}
+{"time":"2025-02-15T19:34:14.197884235+09:00","level":"INFO","msg":"stream: closed","id":"6o51iyjj"}

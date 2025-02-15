@@ -31,7 +31,7 @@ class Router(nn.Module):
         """
         hidden_states = self.gate(hidden_states)
         hidden_states = torch.mean(hidden_states, dim=1)
-        hidden_states = self.sigmoid(hidden_states)
+        hidden_states = torch.sigmoid(hidden_states)
         # (batch_size, n) -> (batch_size, n) with values of 0 or 1
         hidden_states = torch.where(hidden_states > 0.5, 1, 0)
 
@@ -131,49 +131,3 @@ class MeshDecoder(Phi3Decoder):
         if output_attentions:
             outputs += (self_attn_weights,)
         return outputs
-
-        # all_outputs = torch.stack(
-        #     [layer(hidden_states) for layer in self.self_attn_layers], dim=1
-        # )  # (batch, N, seq_len, hidden_dim)
-
-        # # gatherで選択されたレイヤーの出力を取得
-        # # (batch, 1, seq_len, hidden_dim) -> (batch, seq_len, hidden_dim)
-        # hidden_states = torch.gather(
-        #     all_outputs,
-        #     dim=1,
-        #     index=indices.unsqueeze(2).expand(-1, -1, hidden_states.size(1), -1),
-        # ).squeeze(1)
-        # return hidden_states
-
-        # residual = hidden_states
-
-        # hidden_states = self.input_layernorm(hidden_states)
-
-        # # Self Attention
-        # hidden_states, self_attn_weights = self.self_attn(
-        #     hidden_states=hidden_states,
-        #     attention_mask=attention_mask,
-        #     position_ids=position_ids,
-        #     past_key_value=past_key_value,
-        #     output_attentions=output_attentions,
-        #     use_cache=use_cache,
-        #     cache_position=cache_position,
-        #     position_embeddings=position_embeddings,
-        #     **kwargs,
-        # )
-        # hidden_states = residual + self.resid_attn_dropout(
-        #     hidden_states
-        # )  # main diff with Llama
-
-        # residual = hidden_states
-        # hidden_states = self.post_attention_layernorm(hidden_states)
-        # hidden_states = self.mlp(hidden_states)
-        # hidden_states = residual + self.resid_mlp_dropout(
-        #     hidden_states
-        # )  # main diff with Llama
-
-        # outputs = (hidden_states,)
-        # if output_attentions:
-        #     outputs += (self_attn_weights,)
-
-        # return outputs

@@ -1,4 +1,5 @@
 from transformers import Phi3ForCausalLM, Phi3Config, Qwen2ForCausalLM, Qwen2Config
+from models.selective_decoder import SelectivePhi3ForCausalLM
 
 
 class Phi3(Phi3ForCausalLM):
@@ -12,5 +13,7 @@ def get_hf_models(config):
     model_name = config["name"]
     if "phi3" in model_name:
         return Phi3(config)
+    if "selective" in model_name:
+        return SelectivePhi3ForCausalLM(Phi3Config(**config))
     else:
         raise ValueError("not impl hf models: ", model_name)
