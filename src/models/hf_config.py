@@ -119,14 +119,14 @@ configs.extend(phi3)
 
 selective = [
     dict(
-        name="selective-tiny",
+        name="selective_v2-tiny",
         # vocab_size=65535, ## NovelAI/nerdstash-tokenizer-v2
         # vocab_size=96867, ## llm-jp-13b-v2
         # vocab_size=96877,  ## llm-jp-13b-v2 + 品詞トークン
         vocab_size=99574,  ## llm-jp/llm-jp-3-1.8b
-        hidden_size=64,
-        intermediate_size=64,
-        num_hidden_layers=4,
+        hidden_size=32,
+        intermediate_size=32,
+        num_hidden_layers=3,
         num_attention_heads=4,
         num_key_value_heads=None,
         resid_pdrop=0.0,
