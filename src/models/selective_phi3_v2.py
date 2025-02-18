@@ -31,7 +31,7 @@ from transformers.utils import (
 )
 
 # from configuration_phi3 import Phi3Config  # Assuming configuration is in the same directory
-from .phi3 import (
+from models.phi3 import (
     Phi3ForCausalLM,
     Phi3MLP,
     Phi3Attention,
@@ -77,7 +77,7 @@ class LayerSelection(nn.Module):
         self.num_layers = num_layers
         self.temperature = temperature  # Gumbel-Softmax temperature
 
-    def forward(self, hidden_states: torch.Tensor) -> Tuple[torch.Tensor, torch.Tensor]:
+    def forward(self, hidden_states: torch.Tensor) -> torch.Tensor:
         """
         Args:
             hidden_states: The output from the previous layer.
@@ -92,8 +92,8 @@ class LayerSelection(nn.Module):
             logits, tau=self.temperature, hard=True, dim=-1
         )
         # hard=True: one-hotベクトルを返す。推論時はこちらを利用
-        # hard=False: one-hotベクトルに近似された連続的なベクトルを返す。学習時はこちらを利用
-        return selection_probs, selection_probs
+        # # hard=False: one-hotベクトルに近似された連続的なベクトルを返す。学習時はこちらを利用
+        return selection_probs
 
 
 class SelectiveDecoderLayer(nn.Module):
@@ -296,9 +296,7 @@ class SelectiveModel(Phi3PreTrainedModel):
                 all_hidden_states += (hidden_states,)
 
             # Layer Selection for the *next* layer
-            selection_probs, selected_layer_one_hot = self.layer_selectors[i](
-                hidden_states
-            )
+            selected_layer_one_hot = self.layer_selectors[i](hidden_states)
 
             # Residual connection handling
             residual = hidden_states
@@ -310,7 +308,8 @@ class SelectiveModel(Phi3PreTrainedModel):
                 current_selected_layer_idx = torch.argmax(
                     selected_layer_one_hot[batch_idx]
                 ).item()
-
+                print("batch_idx", batch_idx)
+                print("current_selected_layer_idx", current_selected_layer_idx)
                 if (
                     current_selected_layer_idx == self.num_hidden_layers
                 ):  # Residual connection
