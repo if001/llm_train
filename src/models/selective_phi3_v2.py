@@ -308,8 +308,6 @@ class SelectiveModel(Phi3PreTrainedModel):
                 current_selected_layer_idx = torch.argmax(
                     selected_layer_one_hot[batch_idx]
                 ).item()
-                print("batch_idx", batch_idx)
-                print("current_selected_layer_idx", current_selected_layer_idx)
                 if (
                     current_selected_layer_idx == self.num_hidden_layers
                 ):  # Residual connection
