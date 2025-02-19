@@ -63,6 +63,29 @@ from .phi3 import Phi3Config, Phi3RMSNorm, Phi3RotaryEmbedding  # 必要に応�
 from .phi3 import Phi3MLP, Phi3Attention  # 必要に応じて修正
 
 
+class SelectiveModelOutput(BaseModelOutputWithPast):
+    """
+    拡張BaseModelOutputWithPast
+    選択された層のインデックスを保持するselected_layer_indicesを追加
+    """
+
+    def __init__(
+        self,
+        last_hidden_state: torch.FloatTensor,
+        past_key_values: Optional[Tuple[Tuple[torch.FloatTensor]]] = None,
+        hidden_states: Optional[Tuple[torch.FloatTensor]] = None,
+        attentions: Optional[Tuple[torch.FloatTensor]] = None,
+        selected_layer_indices: Optional[List[List[int]]] = None,
+    ):
+        super().__init__(
+            last_hidden_state=last_hidden_state,
+            past_key_values=past_key_values,
+            hidden_states=hidden_states,
+            attentions=attentions,
+        )
+        self.selected_layer_indices = selected_layer_indices
+
+
 class LayerSelection(nn.Module):
     """
     A network that selects one layer or residual connection from a set of layers.
@@ -291,6 +314,7 @@ class SelectiveModel(Phi3PreTrainedModel):
         if past_key_values is None or len(past_key_values) == 0:
             past_key_values = [None] * len(self.layers)
 
+        all_selected_layer_indices = []
         for i in range(self.num_hidden_layers):
             if output_hidden_states:
                 all_hidden_states += (hidden_states,)
@@ -303,11 +327,13 @@ class SelectiveModel(Phi3PreTrainedModel):
 
             batch_size = hidden_states.size(0)
             next_hidden_states = torch.zeros_like(hidden_states)
-
+            current_layer_selected_indices = []
             for batch_idx in range(batch_size):
                 current_selected_layer_idx = torch.argmax(
                     selected_layer_one_hot[batch_idx]
                 ).item()
+                current_layer_selected_indices.append(current_selected_layer_idx)
+
                 if (
                     current_selected_layer_idx == self.num_hidden_layers
                 ):  # Residual connection
@@ -367,7 +393,7 @@ class SelectiveModel(Phi3PreTrainedModel):
                         all_self_attns[current_selected_layer_idx].append(
                             layer_outputs[1]
                         )
-
+            all_selected_layer_indices.append(current_layer_selected_indices)
             hidden_states = next_hidden_states
 
         hidden_states = self.norm(hidden_states)
@@ -382,11 +408,12 @@ class SelectiveModel(Phi3PreTrainedModel):
                 for layer_attns in all_self_attns
             ]
 
-        output = BaseModelOutputWithPast(
+        output = SelectiveModelOutput(
             last_hidden_state=hidden_states,
             past_key_values=past_key_values if use_cache else None,
             hidden_states=all_hidden_states,
             attentions=all_self_attns,
+            selected_layer_indices=all_selected_layer_indices,
         )
 
         return output if return_dict else output.to_tuple()
@@ -606,7 +633,7 @@ class SelectiveForCausalLM(Phi3ForCausalLM):
         return model_inputs
 
 
-if __name__ == "__main__":
+def sampleRun():
     config = Phi3Config(
         vocab_size=100,
         hidden_size=32,
@@ -637,3 +664,11 @@ if __name__ == "__main__":
         input_ids=input_ids, attention_mask=attention_mask, output_attentions=True
     )
     print(outputs)
+
+
+def evalRun():
+    pass
+
+
+if __name__ == "__main__":
+    sampleRun()
