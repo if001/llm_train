@@ -31,7 +31,7 @@ from transformers.utils import (
 )
 
 # from configuration_phi3 import Phi3Config  # Assuming configuration is in the same directory
-from models.phi3 import (
+from .phi3 import (
     Phi3ForCausalLM,
     Phi3MLP,
     Phi3Attention,
@@ -59,8 +59,9 @@ from transformers.modeling_outputs import BaseModelOutputWithPast
 from transformers.modeling_attn_mask_utils import AttentionMaskConverter
 from transformers.modeling_flash_attention_utils import FlashAttentionKwargs
 from typing import Optional, Tuple, Union
-from .phi3 import Phi3Config, Phi3RMSNorm, Phi3RotaryEmbedding  # 必要に応じて修正
-from .phi3 import Phi3MLP, Phi3Attention  # 必要に応じて修正
+
+# from .phi3 import Phi3Config, Phi3RMSNorm, Phi3RotaryEmbedding  # 必要に応じて修正
+# from .phi3 import Phi3MLP, Phi3Attention  # 必要に応じて修正
 
 
 class SelectiveModelOutput(BaseModelOutputWithPast):
