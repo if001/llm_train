@@ -156,7 +156,8 @@ def main():
     config["vocab_size"] = len(tokenizer.get_vocab())
     # config["vocab_size"] = tokenizer.vocab_size
     config["bos_token_id"] = tokenizer.bos_token_id
-    config["eos_token_id"] = tokenizer.bos_token_id
+    # config["eos_token_id"] = tokenizer.bos_token_id
+    config["eos_token_id"] = tokenizer.eos_token_id
     config["pad_token_id"] = tokenizer.pad_token_id
 
     model = get_hf_models(config)
