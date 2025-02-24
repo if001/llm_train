@@ -189,7 +189,7 @@ class CuriosityModelForCausalLM(Phi3ForCausalLM):
             # base model loss
             lm_loss = self.loss_fn(logits.view(-1, self.config.vocab_size), labels.view(-1))
             lm_loss = lm_loss.view(logits.size(0), logits.size(1))
-            lm_loss = torch.mean(lm_loss)
+
             # Primary LPM loss
             primary_loss = torch.mean((l_hat_t - lm_loss) ** 2)
 
@@ -201,7 +201,7 @@ class CuriosityModelForCausalLM(Phi3ForCausalLM):
                 l_t_plus_k = torch.where(shifted_attention_mask.bool(), l_t_plus_k, torch.zeros_like(l_t_plus_k))
 
             secondary_loss = torch.mean((delta_l_hat_t - (l_t_plus_k - l_hat_t)) ** 2)
-
+            lm_loss = torch.mean(lm_loss)
 
         if not return_dict:
             output = (logits, outputs.past_key_values, outputs.hidden_states, outputs.attentions, l_hat_t, delta_l_hat_t)
