@@ -157,10 +157,11 @@ class CuriosityLossWandbLogCallback(TrainerCallback):
         ログ記録時に呼ばれるコールバック関数。
         """
         if state.is_world_process_zero:
-            if logs is not None and "primary_loss" in logs and "secondary_loss" in logs:
+            if logs is not None and "primary_loss" in logs and "secondary_loss" in logs and "total_loss" in logs:
                 wandb.log({
                     "train/primary_loss": logs["primary_loss"],
                     "train/secondary_loss": logs["secondary_loss"],
                     "train/lm_loss": logs["loss"], #lossの重み付け和ではなく、lm_loss
+                    "train/total_loss": logs["total_loss"],
                     "epoch": logs["epoch"],
                 }, step=state.global_step)

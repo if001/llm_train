@@ -16,7 +16,12 @@ class CuriosityTrainer(Trainer):
         )
         total_loss = outputs.loss + 0.1 * outputs.primary_loss + 0.05 * outputs.secondary_loss
         ## callbackのlogsに記録
-        self.log({"primary_loss": outputs.primary_loss.item(), "secondary_loss": outputs.secondary_loss.item()})
+        self.log({
+            "primary_loss": outputs.primary_loss.item() * 0.1,
+            "secondary_loss": outputs.secondary_loss.item() * 0.05,
+            "loss": outputs.loss.item(), 
+            "total_loss": total_loss.item()
+        })
 
         if return_outputs:
             return (total_loss, outputs)
