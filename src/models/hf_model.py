@@ -17,6 +17,6 @@ def get_hf_models(config):
     if "selective_v2" in model_name:
         return SelectiveForCausalLM(Phi3Config(**config))
     if "curiosity" in model_name:
-        return CuriosityModelForCausalLM(Phi3Config(**config))
+        return CuriosityModelForCausalLM(Phi3Config(**config), k = config.k)
     else:
         raise ValueError("not impl hf models: ", model_name)

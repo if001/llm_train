@@ -81,6 +81,7 @@ class CuriosityModel(Phi3Model):
         self.primary_lpm = PrimaryLPM(config.hidden_size, config.hidden_size, use_prev_token=use_prev_token_lpm)
         self.secondary_lpm = SecondaryLPM(config.hidden_size, config.hidden_size, use_next_token=use_next_token_lpm)
         self.loss_fn = nn.CrossEntropyLoss(reduction='none')
+        self.pad_token_id = config["pad_token_id"]
 
     def forward(
         self,
@@ -110,11 +111,12 @@ class CuriosityModel(Phi3Model):
         h_t = outputs.hidden_states[-1]  # 最終層の隠れ状態
 
         if labels is not None: # labelsがあるときだけy_prev, y_nextを計算
-            y_prev = self.embed_tokens(labels)
-            y_next = self.embed_tokens(torch.roll(labels, shifts=-self.k, dims=1))
+            replaced_labels = torch.where(labels == -100, self.pad_token_id, labels)
+            y_prev = self.embed_tokens(replaced_labels)
+            y_next = self.embed_tokens(torch.roll(replaced_labels, shifts=-self.k, dims=1))
 
             # padding部分ではy_nextを計算しない
-            padding_mask = (labels == self.padding_idx)
+            padding_mask = (replaced_labels == self.padding_idx)
             rolled_padding_mask = torch.roll(padding_mask, shifts=-self.k, dims=1)
             y_next = torch.where(rolled_padding_mask.unsqueeze(-1), torch.zeros_like(y_next), y_next)
         else:

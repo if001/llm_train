@@ -5,7 +5,9 @@ class CuriosityTrainer(Trainer):
         super().__init__(*args, **kwargs)
 
     def compute_loss(self, model, inputs, return_outputs=False, num_items_in_batch=None):
-        input_ids, attention_mask, labels = inputs
+        input_ids = inputs["input_ids"]
+        attention_mask = inputs["attention_mask"]
+        labels = inputs["labels"]
 
         outputs = model(
             input_ids=input_ids,
