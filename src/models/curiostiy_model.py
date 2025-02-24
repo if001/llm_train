@@ -140,10 +140,10 @@ class CuriosityModel(Phi3Model):
 
 @dataclass
 class CuriosityModelCausalLMOutputWithPast(CausalLMOutputWithPast):
-    primary_loss = None
-    secondary_loss = None
-    l_hat_t = None
-    delta_l_hat_t = None
+    primary_loss: Optional[torch.FloatTensor] = None
+    secondary_loss: Optional[torch.FloatTensor] = None
+    l_hat_t: Optional[torch.FloatTensor] = None
+    delta_l_hat_t: Optional[torch.FloatTensor] = None
 
 class CuriosityModelForCausalLM(Phi3ForCausalLM):
     def __init__(self, config, k=1, use_prev_token_lpm=False, use_next_token_lpm=False):
