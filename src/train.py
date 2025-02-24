@@ -34,6 +34,7 @@ from trainer.callbacks import (
     ComputeThroughputCallback,
     TokenCountCallback,
     OverrideGlobalStepCallback,
+    CuriosityLossWandbLogCallback
 )
 from utils.prepare_dataset import prepare_dataset
 
@@ -285,6 +286,9 @@ def main():
             trainer_state = json.load(f)
         global_step = trainer_state.get("global_step", 0)
         callbacks.append(OverrideGlobalStepCallback(global_step))
+
+    if args.trainer == "curiosity":
+        callbacks.append(CuriosityLossWandbLogCallback())
 
     if args.trainer == "curiosity":
         trainer = CuriosityTrainer(
