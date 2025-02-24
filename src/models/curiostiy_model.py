@@ -1,4 +1,5 @@
 from typing import Callable, List, Optional, Tuple, Union
+from dataclasses import dataclass
 
 import torch
 import torch.nn as nn
@@ -129,7 +130,7 @@ class CuriosityModel(Phi3Model):
         # Secondary LPM
         if attention_mask is not None:
             shifted_attention_mask = torch.roll(attention_mask, shifts=-self.k, dims=1)
-            h_next = torch.where(shifted_attention_mask.unsqueeze(-1), outputs.hidden_states[-1], torch.zeros_like(outputs.hidden_states[-1]))
+            h_next = torch.where(shifted_attention_mask.unsqueeze(-1).bool(), outputs.hidden_states[-1], torch.zeros_like(outputs.hidden_states[-1]))
         else:
             h_next = outputs.hidden_states[-1]
 
@@ -137,6 +138,12 @@ class CuriosityModel(Phi3Model):
 
         return outputs, l_hat_t, delta_l_hat_t
 
+@dataclass
+class CuriosityModelCausalLMOutputWithPast(CausalLMOutputWithPast):
+    primary_loss = None
+    secondary_loss = None
+    l_hat_t = None
+    delta_l_hat_t = None
 
 class CuriosityModelForCausalLM(Phi3ForCausalLM):
     def __init__(self, config, k=1, use_prev_token_lpm=False, use_next_token_lpm=False):
@@ -191,7 +198,7 @@ class CuriosityModelForCausalLM(Phi3ForCausalLM):
              # padding部分ではlossを計算しない
             if attention_mask is not None:
                 shifted_attention_mask = torch.roll(attention_mask, shifts=-self.model.k, dims=1)
-                l_t_plus_k = torch.where(shifted_attention_mask, l_t_plus_k, torch.zeros_like(l_t_plus_k))
+                l_t_plus_k = torch.where(shifted_attention_mask.bool(), l_t_plus_k, torch.zeros_like(l_t_plus_k))
 
             secondary_loss = torch.mean((delta_l_hat_t - (l_t_plus_k - l_hat_t)) ** 2)
 
@@ -200,7 +207,7 @@ class CuriosityModelForCausalLM(Phi3ForCausalLM):
             output = (logits, outputs.past_key_values, outputs.hidden_states, outputs.attentions, l_hat_t, delta_l_hat_t)
             return ((lm_loss, primary_loss, secondary_loss) + output) if lm_loss is not None else output
 
-        return CausalLMOutputWithPast(  # transformersのCausalLMOutputWithPastを返す
+        return CuriosityModelCausalLMOutputWithPast(
             loss=lm_loss,
             logits=logits,
             past_key_values=outputs.past_key_values,
@@ -210,7 +217,6 @@ class CuriosityModelForCausalLM(Phi3ForCausalLM):
             secondary_loss=secondary_loss,
             l_hat_t=l_hat_t,
             delta_l_hat_t=delta_l_hat_t,
-
         )
     def prepare_inputs_for_generation(
         self, input_ids, past_key_values=None, attention_mask=None, inputs_embeds=None, **kwargs
