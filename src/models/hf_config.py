@@ -149,4 +149,36 @@ selective = [
 ]
 configs.extend(selective)
 
+curi = [
+    dict(
+        name="curiosity-tiny",
+        # vocab_size=65535, ## NovelAI/nerdstash-tokenizer-v2
+        # vocab_size=96867, ## llm-jp-13b-v2
+        # vocab_size=96877,  ## llm-jp-13b-v2 + 品詞トークン
+        vocab_size=99574,  ## llm-jp/llm-jp-3-1.8b
+        hidden_size=64,
+        intermediate_size=64,
+        num_hidden_layers=4,
+        num_attention_heads=4,
+        num_key_value_heads=None,
+        resid_pdrop=0.0,
+        embd_pdrop=0.0,
+        attention_dropout=0.0,
+        hidden_act="silu",
+        max_position_embeddings=1024,
+        initializer_range=0.02,
+        rms_norm_eps=1e-5,
+        use_cache=True,
+        tie_word_embeddings=False,
+        rope_theta=10000.0,
+        rope_scaling=None,
+        bos_token_id=1,
+        eos_token_id=2,
+        pad_token_id=4,
+        sliding_window=None,
+        k=2,
+    ),
+]
+configs.extend(curi)
+
 name_to_config = {config["name"]: config for config in configs}

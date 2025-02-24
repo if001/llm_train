@@ -29,14 +29,12 @@ print("torch version: ", torch.version.cuda)
 from models.hf_config import get_config
 from models.hf_model import get_hf_models
 
-from trainer.trainer import get_trainer
 from trainer.callbacks import (
     ComputeThroughputCallback,
     TokenCountCallback,
     OverrideGlobalStepCallback,
 )
 from utils.prepare_dataset import prepare_dataset
-
 
 # from utils.hinshi_encoder import build_hinshi_tokenize
 
@@ -93,8 +91,7 @@ def parse_arguments():
     parser.add_argument("--lr_scheduler_type", default="linear", type=str)
     parser.add_argument("--learning_rate", default=5e-5, type=float)
     parser.add_argument("--ignore_data_skip", action="store_true")
-    parser.add_argument("--trainer", type=str)
-    
+
     parser.add_argument("--from_model_path", default=None, type=str)
     parser.add_argument("--to_model_name", default=None, type=str)
 
@@ -264,16 +261,16 @@ def main():
     print("parallel_mode: ", training_args.parallel_mode)
     print("world_size", training_args.world_size)
 
-     # computeThroughput = ComputeThroughputCallback(
-    #     vocab_size=model.config.vocab_size,
-    #     # seq_length=model.config.max_sequence_length,
-    #     seq_length=model.config.max_position_embeddings,
-    #     num_layers=model.config.num_hidden_layers,
-    #     hidden_size=model.config.hidden_size,
-    #     world_size=1,
-    #     log_steps=args.logging_steps,
-    # )
-    # tokenCounter = TokenCountCallback(max_token_count=MAX_TOKENS)
+    computeThroughput = ComputeThroughputCallback(
+        vocab_size=model.config.vocab_size,
+        # seq_length=model.config.max_sequence_length,
+        seq_length=model.config.max_position_embeddings,
+        num_layers=model.config.num_hidden_layers,
+        hidden_size=model.config.hidden_size,
+        world_size=1,
+        log_steps=args.logging_steps,
+    )
+    tokenCounter = TokenCountCallback(max_token_count=MAX_TOKENS)
     callbacks = []
     # callbacks=[computeThroughput, tokenCounter]
 
@@ -286,8 +283,7 @@ def main():
         global_step = trainer_state.get("global_step", 0)
         callbacks.append(OverrideGlobalStepCallback(global_step))
 
-    _Trainer = get_trainer(name=args.trainer)
-    trainer = _Trainer(
+    trainer = Trainer(
         model=model,
         args=training_args,
         train_dataset=train_dataset,
@@ -315,6 +311,7 @@ def main():
         model.push_to_hub(args.upload_repo_id)
         print("upload done...")
     wandb.finish()
+
 
 
 if __name__ == "__main__":
