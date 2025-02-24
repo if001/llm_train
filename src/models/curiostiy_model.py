@@ -82,7 +82,7 @@ class CuriosityModel(Phi3Model):
         self.primary_lpm = PrimaryLPM(config.hidden_size, config.hidden_size, use_prev_token=use_prev_token_lpm)
         self.secondary_lpm = SecondaryLPM(config.hidden_size, config.hidden_size, use_next_token=use_next_token_lpm)
         self.loss_fn = nn.CrossEntropyLoss(reduction='none')
-        self.pad_token_id = config["pad_token_id"]
+        self.pad_token_id = config.pad_token_id
 
     def forward(
         self,
