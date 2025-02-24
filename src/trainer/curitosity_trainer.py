@@ -1,6 +1,9 @@
 from transformers import Trainer
 
 class CuriosityTrainer(Trainer):
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+
     def compute_loss(self, model, inputs, return_outputs=False):
         input_ids, attention_mask, labels = inputs
 
