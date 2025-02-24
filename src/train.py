@@ -29,7 +29,7 @@ print("torch version: ", torch.version.cuda)
 from models.hf_config import get_config
 from models.hf_model import get_hf_models
 
-from trainer.trainer import get_trainer
+from trainer.curitosity_trainer import CuriosityTrainer
 from trainer.callbacks import (
     ComputeThroughputCallback,
     TokenCountCallback,
@@ -286,16 +286,24 @@ def main():
         global_step = trainer_state.get("global_step", 0)
         callbacks.append(OverrideGlobalStepCallback(global_step))
 
-    _Trainer = get_trainer(name=args.trainer)
-    trainer = _Trainer(
-        model=model,
-        args=training_args,
-        train_dataset=train_dataset,
-        eval_dataset=test_dataset,
-        data_collator=data_collator,
-        # callbacks=[computeThroughput, tokenCounter],
-        callbacks=callbacks,
-    )
+    if args.trainer == "curiosity":
+        trainer = CuriosityTrainer(
+            model=model,
+            args=training_args,
+            train_dataset=train_dataset,
+            eval_dataset=test_dataset,
+            data_collator=data_collator,
+            callbacks=callbacks,
+        )
+    else:
+        trainer = Trainer(
+            model=model,
+            args=training_args,
+            train_dataset=train_dataset,
+            eval_dataset=test_dataset,
+            data_collator=data_collator,
+            callbacks=callbacks,
+        )
 
     if args.resume_path:
         trainer.train(resume_from_checkpoint=args.resume_path)

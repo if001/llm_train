@@ -1,7 +1,15 @@
+from typing import Callable, List, Optional, Tuple, Union
+
 import torch
 import torch.nn as nn
 from transformers import LlamaForCausalLM, LlamaModel, LlamaTokenizer, LlamaConfig
 from transformers.modeling_outputs import CausalLMOutputWithPast
+from transformers.cache_utils import (
+    Cache,
+    DynamicCache,
+    SlidingWindowCache,
+    StaticCache,
+)
 
 from .phi3 import (
     Phi3ForCausalLM,
@@ -136,16 +144,16 @@ class CuriosityModelForCausalLM(Phi3ForCausalLM):
 
     def forward(
         self,
-        input_ids=None,
-        attention_mask=None,
-        position_ids=None,
-        past_key_values=None,
-        inputs_embeds=None,
-        labels=None,
-        use_cache=None,
-        output_attentions=None,
-        output_hidden_states=None,
-        return_dict=None,
+        input_ids: torch.LongTensor = None,
+        attention_mask: Optional[torch.Tensor] = None,
+        position_ids: Optional[torch.LongTensor] = None,
+        past_key_values: Optional[Union[Cache, List[torch.FloatTensor]]] = None,
+        inputs_embeds: Optional[torch.FloatTensor] = None,
+        labels: Optional[torch.LongTensor] = None,
+        use_cache: Optional[bool] = None,
+        output_attentions: Optional[bool] = None,
+        output_hidden_states: Optional[bool] = None,
+        return_dict: Optional[bool] = None,
     ):
         return_dict = return_dict if return_dict is not None else self.config.use_return_dict
 
