@@ -25,7 +25,7 @@ def get_hf_models(config):
         return SelectiveForCausalLM(Phi3Config(**config))
     if "curiosity" in model_name:
         return CuriosityModelForCausalLM(CuriosityModelConfig(**config))
-    if "skip_attention" in model_name:
+    if "few_attention" in model_name:
         return FewAttentionModelForCausalLM(FewAttentionConfig(**config))
     else:
         raise ValueError("not impl hf models: ", model_name)
