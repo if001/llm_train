@@ -24,6 +24,11 @@ from .phi3 import (
     KwargsForCausalLM,
 )
 
+class CuriosityModelConfig(Phi3Config):
+    def __init__(self, k = 1, *args, **kwargs):
+        super().__init(*args, **kwargs)
+        self.k = k
+
 class PrimaryLPM(nn.Module):
     def __init__(self, hidden_dim, embedding_dim=None, use_prev_token=False):
         super().__init__()
@@ -75,10 +80,10 @@ class SecondaryLPM(nn.Module):
 
 
 class CuriosityModel(Phi3Model):
-    def __init__(self, config: LlamaConfig, k=1, use_prev_token_lpm=False, use_next_token_lpm=False):
+    def __init__(self, config: CuriosityModelConfig, use_prev_token_lpm=False, use_next_token_lpm=False):
         super().__init__(config)
 
-        self.k = k
+        self.k = config.k
         self.primary_lpm = PrimaryLPM(config.hidden_size, config.hidden_size, use_prev_token=use_prev_token_lpm)
         self.secondary_lpm = SecondaryLPM(config.hidden_size, config.hidden_size, use_next_token=use_next_token_lpm)
         self.loss_fn = nn.CrossEntropyLoss(reduction='none')
