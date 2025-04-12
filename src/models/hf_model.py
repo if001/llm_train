@@ -8,7 +8,7 @@ from models.few_attention_model import (
     FewAttentionModelForCausalLM,
     FewAttentionConfig
 )
-
+from models.qwen2_add_layer import get_qwen
 
 class Phi3(Phi3ForCausalLM):
     def __init__(self, config):
@@ -27,5 +27,7 @@ def get_hf_models(config):
         return CuriosityModelForCausalLM(CuriosityModelConfig(**config))
     if "few_attention" in model_name:
         return FewAttentionModelForCausalLM(FewAttentionConfig(**config))
+    if "qwen2_0.5_25" in model_name:
+        return get_qwen()
     else:
         raise ValueError("not impl hf models: ", model_name)
