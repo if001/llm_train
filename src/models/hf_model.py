@@ -27,7 +27,7 @@ def get_hf_models(config):
         return CuriosityModelForCausalLM(CuriosityModelConfig(**config))
     if "few_attention" in model_name:
         return FewAttentionModelForCausalLM(FewAttentionConfig(**config))
-    if "qwen2_0.5_25" in model_name:
+    if "qwen2_0.5b_25" in model_name:
         return get_qwen()
     else:
         raise ValueError("not impl hf models: ", model_name)
