@@ -1,6 +1,6 @@
 def get_config(model_name):
     if "qwen" in model_name:
-        return {"name": "qwen2_0.5_25"}
+        return {"name": "qwen2_0.5b_25"}
     if model_name not in name_to_config:
         raise ValueError("model not impl")
     conf_dict = name_to_config[model_name]
