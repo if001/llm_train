@@ -1,4 +1,5 @@
 import argparse
+import torch
 from transformers import AutoTokenizer
 
 from models.hf_config import get_config
@@ -11,13 +12,13 @@ def parse_arguments():
         "--tokenizer", type=str, default="NovelAI/nerdstash-tokenizer-v2"
     )
     parser.add_argument("--input_text", type=str, required=True)
+    parser.add_argument("--checkpoint_path", type=str, required=True)
     args = parser.parse_args()
     print("args: ", args)
     return args
 
 def main():
     args = parse_arguments()
-
 
     tokenizer = AutoTokenizer.from_pretrained(args.tokenizer)
     config = get_config(args.model_name)
@@ -27,6 +28,11 @@ def main():
     config["pad_token_id"] = tokenizer.pad_token_id
 
     model = get_hf_models(config)
+
+    state_dict = torch.load(args.checkpoint_path)
+
+    # モデルにロード
+    model.load_state_dict(state_dict)
 
     input_text = args.input_text
     input_ids = tokenizer(input_text, return_tensors="pt").to("cuda")
