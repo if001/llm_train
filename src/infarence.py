@@ -1,6 +1,8 @@
 import argparse
 import torch
 from transformers import AutoTokenizer
+from safetensors.torch import load_file
+
 
 from models.hf_config import get_config
 from models.hf_model import get_hf_models
@@ -29,9 +31,7 @@ def main():
 
     model = get_hf_models(config)
 
-    state_dict = torch.load(args.checkpoint_path)
-
-    # モデルにロード
+    state_dict = load_file(args.checkpoint_path)
     model.load_state_dict(state_dict)
 
     input_text = args.input_text
