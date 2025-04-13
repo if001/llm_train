@@ -19,7 +19,7 @@ def get_qwen():
 
     # 25番目として追加
     model.model.layers.append(new_layer)
-    for i, layer in enumerate(model.model.transformer.layers):
+    for i, layer in enumerate(model.model.layers):
         for param in layer.parameters():
             param.requires_grad = (i == 24)
 
