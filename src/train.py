@@ -232,7 +232,7 @@ def main():
         per_device_eval_batch_size=args.batch_size,
         gradient_accumulation_steps=GC_STEPS,
         warmup_steps=args.warmup_steps,
-        evaluation_strategy="steps",
+        eval_strategy="steps",
         eval_steps=args.eval_steps,
         weight_decay=0.01,
         # optim="adamw_apex_fused",
