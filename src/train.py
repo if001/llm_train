@@ -94,6 +94,7 @@ def parse_arguments():
     parser.add_argument("--lr_scheduler_type", default="linear", type=str)
     parser.add_argument("--learning_rate", default=5e-5, type=float)
     parser.add_argument("--ignore_data_skip", action="store_true")
+    parser.add_argument("--use_packed_ds", action="store_true")
     parser.add_argument("--trainer", type=str)
     
     parser.add_argument("--from_model_path", default=None, type=str)
@@ -201,26 +202,40 @@ def main():
     print("--- model config ... ---")
     print(model.config)
 
-    data_collator = DataCollatorForLanguageModeling(tokenizer=tokenizer, mlm=False)
-
     print("--- making dataset ... ---")
     dataset = make_dataset(args.dataset_ids, select_len=args.ds_select_len)
-    train_dataset = prepare_dataset(
-        dataset["train"],
-        tokenizer,
-        encoder=encoder,
-        add_special_tokens=False,
-        append_concat_token=True,
-        max_seq_length=model.config.max_position_embeddings,
-    )
-    test_dataset = prepare_dataset(
-        dataset["test"],
-        tokenizer,
-        encoder=encoder,
-        add_special_tokens=False,
-        append_concat_token=True,
-        max_seq_length=model.config.max_position_embeddings,
-    )
+    if args.use_packed_ds:
+        data_collator = DataCollatorForLanguageModeling(tokenizer=tokenizer, mlm=False)
+        train_dataset = prepare_dataset(
+            dataset["train"],
+            tokenizer,
+            encoder=encoder,
+            add_special_tokens=False,
+            append_concat_token=True,
+            max_seq_length=model.config.max_position_embeddings,
+        )
+        test_dataset = prepare_dataset(
+            dataset["test"],
+            tokenizer,
+            encoder=encoder,
+            add_special_tokens=False,
+            append_concat_token=True,
+            max_seq_length=model.config.max_position_embeddings,
+        )
+    else:
+        def tokenize_fn(examples):
+            return tokenizer(examples["text"], truncation=True, padding="max_length", max_length=128)
+
+        tokenized_dataset = dataset.map(tokenize_fn, batched=True)
+        tokenized_dataset.set_format(type="torch", columns=["input_ids", "attention_mask"])
+
+        def data_collator(features):
+            batch = {
+                "input_ids": torch.stack([f["input_ids"] for f in features]),
+                "attention_mask": torch.stack([f["attention_mask"] for f in features]),
+            }
+            batch["labels"] = batch["input_ids"].clone()
+            return batch
 
     print("--- training start ... ---")
     training_args = TrainingArguments(

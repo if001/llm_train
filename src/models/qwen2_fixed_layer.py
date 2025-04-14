@@ -87,10 +87,16 @@ class Qwen2MoEDecoderLayer(nn.Module):
         return outputs
 
 def get_qwen(model_name):
-    model_name = "Qwen/Qwen2-0.5B"
-    model = AutoModelForCausalLM.from_pretrained(model_name)
+    # model_name = "Qwen/Qwen2-0.5B"
+    model = AutoModelForCausalLM.from_pretrained("Qwen/Qwen2-0.5B")
 
     config = model.config
+    for param in model.model.embed_tokens.parameters():
+        param.requires_grad = False
+
+    for param in model.model.norm.parameters():
+        param.requires_grad = False
+
     if "qwen2_0.5b_25" in model_name:
         new_layer = Qwen2DecoderLayer(config, layer_idx=24)
         model.model.layers.append(new_layer)
@@ -100,11 +106,15 @@ def get_qwen(model_name):
 
         model.config.max_window_layers = 25
         model.config.num_hidden_layers = 25
+
     if "qwen2_0.5b_24" in model_name:
         for i, layer in enumerate(model.model.layers):
-            print(layer)
-            # for param in layer.parameters():
-            #     param.requires_grad = (i == 23)
+            for param in layer.parameters():
+                param.requires_grad = False
+            if i == 23:
+                for param in layer.mlp.parameters():
+                    param.requires_grad = False
+
     if "qwen2_0.5b_24_moe" in model_name:
         pretrained_layer = model.transformer.layers[23]
         model.transformer.layers[23] = Qwen2MoEDecoderLayer(config, pretrained_layer, layer_idx=23)
@@ -112,8 +122,9 @@ def get_qwen(model_name):
         for i, layer in enumerate(model.model.layers):
             for param in layer.parameters():
                 param.requires_grad = (i == 23)
-        trainable = [(name, p.numel()) for name, p in model.named_parameters() if p.requires_grad]
-        print("Trainable parameters:")
-        for name, count in trainable:
-            print(f"{name}: {count:,}")
+
+    trainable = [(name, p.numel()) for name, p in model.named_parameters() if p.requires_grad]
+    print("Trainable parameters:")
+    for name, count in trainable:
+        print(f"{name}: {count:,}")
     return model

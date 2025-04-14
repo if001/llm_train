@@ -8,7 +8,7 @@ from models.few_attention_model import (
     FewAttentionModelForCausalLM,
     FewAttentionConfig
 )
-from src.models.qwen2_fixed_layer import get_qwen
+from models.qwen2_fixed_layer import get_qwen
 
 class Phi3(Phi3ForCausalLM):
     def __init__(self, config):
