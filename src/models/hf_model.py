@@ -31,5 +31,7 @@ def get_hf_models(config):
         return get_qwen(model_name)
     if "qwen2_0.5b_24" in model_name:
         return get_qwen(model_name)
+    if "qwen2_0.5b_24_moe" in model_name:
+        return get_qwen(model_name)
     else:
         raise ValueError("not impl hf models: ", model_name)
