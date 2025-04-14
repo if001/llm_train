@@ -1,6 +1,6 @@
 import argparse
 import torch
-from transformers import AutoTokenizer
+from transformers import AutoTokenizer, AutoModelForCausalLM
 from safetensors.torch import load_file
 
 
@@ -29,10 +29,10 @@ def main():
     config["eos_token_id"] = tokenizer.eos_token_id
     config["pad_token_id"] = tokenizer.pad_token_id
 
-    model = get_hf_models(config)
-
-    state_dict = load_file(args.checkpoint_path)
-    model.load_state_dict(state_dict)
+    model = AutoModelForCausalLM.from_pretrained(args.checkpoint_path)
+    # model = get_hf_models(config)
+    # state_dict = load_file(args.checkpoint_path)
+    # model.load_state_dict(state_dict)
 
     input_text = args.input_text
     input_ids = tokenizer(input_text, return_tensors="pt").to("cuda")
