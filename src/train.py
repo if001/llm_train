@@ -224,10 +224,12 @@ def main():
         )
     else:
         def tokenize_fn(examples):
-            return tokenizer(examples["text"], truncation=True, padding="max_length", max_length=128)
+            return tokenizer(examples["text"], truncation=True, padding="max_length", max_length=2048)
 
         tokenized_dataset = dataset.map(tokenize_fn, batched=True)
         tokenized_dataset.set_format(type="torch", columns=["input_ids", "attention_mask"])
+        train_dataset = tokenized_dataset['train']
+        test_dataset = tokenized_dataset['test']
 
         def data_collator(features):
             batch = {
