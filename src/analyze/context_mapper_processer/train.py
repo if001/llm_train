@@ -64,8 +64,8 @@ class QADataCollator:
 # 1. components ---------------------------------------------------------------
 # st_model_name = "sentence-transformers/all-MiniLM-L6-v2"
 st_model_name = "cl-nagoya/ruri-base-v2"
-# lm_name       = "gpt2"
-lm_name = "microsoft/Phi-4-mini-instruct"
+
+# lm_name = "microsoft/Phi-4-mini-instruct"
 lm_name = "google/gemma-3-1b-pt"
 
 sentence_encoder = SentenceTransformer(st_model_name)
