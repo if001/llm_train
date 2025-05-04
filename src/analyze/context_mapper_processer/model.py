@@ -32,27 +32,40 @@ class STPrefixMapper(nn.Module):
         x = self.mapper(st_vec)  # [B, N*Demb]
         return x.view(B, self.num_tokens, -1)  # [B, N, Demb]
 
+class ContextBlip2Config(PretrainedConfig):
+    model_type = "context_blip2"
+
+    def __init__(
+        self,
+        lm_name: str          = "gpt2",
+        st_dim:  int          = 768,
+        num_prefix_tokens: int = 16,
+        hidden_dim: int | None = None,
+        **kwargs
+    ):
+        super().__init__(**kwargs)
+        self.lm_name          = lm_name
+        self.st_dim           = st_dim
+        self.num_prefix_tokens = num_prefix_tokens
+        self.hidden_dim       = hidden_dim
+
 
 class ContextBLIP2Wrapper(PreTrainedModel):
     """
     Wrap any causal-LM so it can consume a SentenceTransformer vector
     as a learned prefix (BLIP-2 Q-Former style).
     """
-
-    config_class = AutoConfig  # lets us use from_pretrained easily
+    config_class = ContextBlip2Config
 
     def __init__(
         self,
-        lm_name: str = "gpt2",
-        st_dim: int = 768,
-        num_prefix_tokens: int = 16,
-        hidden_dim: int | None = None,
+        config: ContextBlip2Config
     ):
-        config = AutoConfig.from_pretrained(lm_name)
+
         super().__init__(config)
 
         # ① backbone LM
-        self.lm = AutoModelForCausalLM.from_pretrained(lm_name)
+        self.lm = AutoModelForCausalLM.from_pretrained(config.lm_name)
         ## gemma3を使う場合
         # self.lm = AutoModelForCausalLM.from_pretrained(lm_name, attn_implementation='eager')
 
@@ -60,8 +73,12 @@ class ContextBLIP2Wrapper(PreTrainedModel):
 
         # ② tiny mapper
         self.prefix_mapper = STPrefixMapper(
-            st_dim, lm_emb_dim, num_prefix_tokens, hidden_dim
+            config.st_dim,
+            lm_emb_dim,
+            config.num_prefix_tokens,
+            config.hidden_dim,
         )
+
         self.num_prefix_tokens = num_prefix_tokens
 
         # ③ (optional) freeze LM to train only mapper
@@ -138,4 +155,15 @@ class ContextBLIP2Wrapper(PreTrainedModel):
             inputs_embeds=inputs_embeds,
             attention_mask=attention_mask,
             **gen_kwargs,
+        )
+
+    def _filter_state_dict_for_save(state_dict):
+        """lm. で始まるキーを落とす"""
+        return {k: v for k, v in state_dict.items() if not k.startswith("lm.")}
+
+    def save_pretrained(self, save_directory, **kwargs):
+        super().save_pretrained(
+            save_directory,
+            state_dict=_filter_state_dict_for_save(self.state_dict()),
+            **kwargs,
         )

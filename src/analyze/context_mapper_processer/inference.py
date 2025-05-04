@@ -19,8 +19,8 @@ processor = STContextProcessor(SentenceTransformer(st_name), tokenizer)
 context_txt = "量子コンピュータの誕生と現在の課題をまとめた論文。"
 prompt_txt = "将来の量子AIについて一段落で説明してください。"
 
-batch = processor(context_txt, prompt_txt)
-batch = {k: v.to(device) for k, v in batch.items()}
+batch = processor(context_txt, prompt_txt, "")
+batch = {k: torch.tensor(v).to(device) for k, v in batch.items()}
 
 generated_ids = model.generate_with_context(
     input_ids=batch["input_ids"],
