@@ -7,7 +7,8 @@ from sentence_transformers import SentenceTransformer
 
 device = "cuda" if torch.cuda.is_available() else "cpu"
 
-lm_name = "microsoft/Phi-4-mini-instruct"
+# lm_name = "microsoft/Phi-4-mini-instruct"
+lm_name = "google/gemma-3-1b-pt"
 st_name = "cl-nagoya/ruri-base-v2"
 
 model = ContextBLIP2Wrapper.from_pretrained("st_blip2_ckpt").to(device)
