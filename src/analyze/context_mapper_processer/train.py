@@ -66,6 +66,8 @@ class QADataCollator:
 st_model_name = "cl-nagoya/ruri-base-v2"
 # lm_name       = "gpt2"
 lm_name = "microsoft/Phi-4-mini-instruct"
+lm_name = "google/gemma-3-1b-pt"
+
 sentence_encoder = SentenceTransformer(st_model_name)
 tokenizer = AutoTokenizer.from_pretrained(lm_name)
 processor = STContextProcessor(sentence_encoder, tokenizer, max_length=1024)
@@ -95,12 +97,15 @@ ds = ds.train_test_split(test_size=0.1)
 # 3. train --------------------------------------------------------------------
 training_args = TrainingArguments(
     output_dir="st_blip2_ckpt",
-    per_device_train_batch_size=4,
+    per_device_train_batch_size=16,
     learning_rate=5e-4,
-    num_train_epochs=3,
+    num_train_epochs=1,
     bf16=True,
     save_total_limit=2,
     report_to="wandb",
+    remove_unused_columns=False,
+    logging_strategy="steps",
+    logging_steps=50,
 )
 
 data_collator = QADataCollator(tokenizer)

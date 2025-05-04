@@ -2,19 +2,26 @@ import torch
 from torch import nn
 from transformers import AutoModelForCausalLM, AutoConfig, PreTrainedModel
 
+
 class STPrefixMapper(nn.Module):
     """
     Map a single SentenceTransformer vector to N pseudo-token embeddings.
     """
-    def __init__(self, st_dim: int, lm_emb_dim: int,
-                 num_tokens: int = 16, hidden_dim: int | None = None):
+
+    def __init__(
+        self,
+        st_dim: int,
+        lm_emb_dim: int,
+        num_tokens: int = 16,
+        hidden_dim: int | None = None,
+    ):
         super().__init__()
         self.num_tokens = num_tokens
         if hidden_dim:
             self.mapper = nn.Sequential(
                 nn.Linear(st_dim, hidden_dim),
                 nn.Tanh(),
-                nn.Linear(hidden_dim, lm_emb_dim * num_tokens)
+                nn.Linear(hidden_dim, lm_emb_dim * num_tokens),
             )
         else:  # simplest: single affine map
             self.mapper = nn.Linear(st_dim, lm_emb_dim * num_tokens)
@@ -22,8 +29,8 @@ class STPrefixMapper(nn.Module):
     def forward(self, st_vec: torch.Tensor) -> torch.Tensor:
         # st_vec: [B, Dvec]
         B = st_vec.size(0)
-        x = self.mapper(st_vec)                      # [B, N*Demb]
-        return x.view(B, self.num_tokens, -1)        # [B, N, Demb]
+        x = self.mapper(st_vec)  # [B, N*Demb]
+        return x.view(B, self.num_tokens, -1)  # [B, N, Demb]
 
 
 class ContextBLIP2Wrapper(PreTrainedModel):
@@ -31,18 +38,24 @@ class ContextBLIP2Wrapper(PreTrainedModel):
     Wrap any causal-LM so it can consume a SentenceTransformer vector
     as a learned prefix (BLIP-2 Q-Former style).
     """
+
     config_class = AutoConfig  # lets us use from_pretrained easily
 
-    def __init__(self,
-                 lm_name: str = "gpt2",
-                 st_dim: int = 768,
-                 num_prefix_tokens: int = 16,
-                 hidden_dim: int | None = None):
+    def __init__(
+        self,
+        lm_name: str = "gpt2",
+        st_dim: int = 768,
+        num_prefix_tokens: int = 16,
+        hidden_dim: int | None = None,
+    ):
         config = AutoConfig.from_pretrained(lm_name)
         super().__init__(config)
 
         # ① backbone LM
         self.lm = AutoModelForCausalLM.from_pretrained(lm_name)
+        ## gemma3を使う場合
+        # self.lm = AutoModelForCausalLM.from_pretrained(lm_name, attn_implementation='eager')
+
         lm_emb_dim = self.lm.get_input_embeddings().embedding_dim
 
         # ② tiny mapper
@@ -58,16 +71,16 @@ class ContextBLIP2Wrapper(PreTrainedModel):
     # ===== forward =====
     def forward(
         self,
-        input_ids: torch.Tensor,            # [B, L]
+        input_ids: torch.Tensor,  # [B, L]
         attention_mask: torch.Tensor | None = None,
-        sentence_vec: torch.Tensor | None = None,   # [B, Dvec]
+        sentence_vec: torch.Tensor | None = None,  # [B, Dvec]
         labels: torch.Tensor | None = None,
     ):
         if sentence_vec is None:
             raise ValueError("Provide sentence_vec tensor")
 
         # a) build prefix embeddings
-        prefix_embeds = self.prefix_mapper(sentence_vec)   # [B, N, Demb]
+        prefix_embeds = self.prefix_mapper(sentence_vec)  # [B, N, Demb]
 
         # b) normal token embeddings
         tok_embeds = self.lm.get_input_embeddings()(input_ids)  # [B, L, Demb]
@@ -84,6 +97,15 @@ class ContextBLIP2Wrapper(PreTrainedModel):
             )
             attention_mask = torch.cat([prefix_mask, attention_mask], dim=1)
 
+        B = input_ids.size(0)
+        device = input_ids.device
+        N = self.num_prefix_tokens
+        if labels is not None:
+            prefix_ignore = torch.full(
+                (B, N), fill_value=-100, dtype=labels.dtype, device=device
+            )
+            labels = torch.cat([prefix_ignore, labels], dim=1)
+
         # e) run LM
         return self.lm(
             inputs_embeds=inputs_embeds,
@@ -98,7 +120,7 @@ class ContextBLIP2Wrapper(PreTrainedModel):
         input_ids: torch.Tensor,
         sentence_vec: torch.Tensor,
         attention_mask: torch.Tensor | None = None,
-        **gen_kwargs
+        **gen_kwargs,
     ):
         prefix_embeds = self.prefix_mapper(sentence_vec)
         tok_embeds = self.lm.get_input_embeddings()(input_ids)
