@@ -7,7 +7,7 @@ from transformers import (
 )
 from sentence_transformers import SentenceTransformer
 
-from model import ContextBLIP2Wrapper
+from model import ContextBLIP2Wrapper, ContextBlip2Config
 from context_processor import STContextProcessor
 
 
@@ -72,12 +72,13 @@ sentence_encoder = SentenceTransformer(st_model_name)
 tokenizer = AutoTokenizer.from_pretrained(lm_name)
 processor = STContextProcessor(sentence_encoder, tokenizer, max_length=1024)
 
-model = ContextBLIP2Wrapper(
+config = ContextBlip2Config(
     lm_name=lm_name,
     st_dim=sentence_encoder.get_sentence_embedding_dimension(),
     num_prefix_tokens=16,
-    hidden_dim=512,
+    hidden_dim=512
 )
+model = ContextBLIP2Wrapper(config)
 
 # 2. dummy data ---------------------------------------------------------------
 # expects a dataset with {"context": ..., "input": ..., "output": ...}

@@ -1,6 +1,6 @@
 import torch
 from torch import nn
-from transformers import AutoModelForCausalLM, AutoConfig, PreTrainedModel
+from transformers import AutoModelForCausalLM, AutoConfig, PreTrainedModel, PretrainedConfig
 
 
 class STPrefixMapper(nn.Module):
@@ -79,7 +79,7 @@ class ContextBLIP2Wrapper(PreTrainedModel):
             config.hidden_dim,
         )
 
-        self.num_prefix_tokens = num_prefix_tokens
+        self.num_prefix_tokens = config.num_prefix_tokens
 
         # ③ (optional) freeze LM to train only mapper
         for p in self.lm.parameters():
@@ -157,13 +157,13 @@ class ContextBLIP2Wrapper(PreTrainedModel):
             **gen_kwargs,
         )
 
-    def _filter_state_dict_for_save(state_dict):
+    def _filter_state_dict_for_save(self, state_dict):
         """lm. で始まるキーを落とす"""
         return {k: v for k, v in state_dict.items() if not k.startswith("lm.")}
 
     def save_pretrained(self, save_directory, **kwargs):
         super().save_pretrained(
             save_directory,
-            state_dict=_filter_state_dict_for_save(self.state_dict()),
+            self._filter_state_dict_for_save(self.state_dict()),
             **kwargs,
         )

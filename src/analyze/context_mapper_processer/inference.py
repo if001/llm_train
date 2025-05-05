@@ -1,5 +1,6 @@
 import torch
 from transformers import AutoTokenizer
+from transformers.trainer_utils import get_last_checkpoint
 
 from model import ContextBLIP2Wrapper
 from context_processor import STContextProcessor
@@ -11,7 +12,8 @@ device = "cuda" if torch.cuda.is_available() else "cpu"
 lm_name = "google/gemma-3-1b-pt"
 st_name = "cl-nagoya/ruri-base-v2"
 
-model = ContextBLIP2Wrapper.from_pretrained("st_blip2_ckpt").to(device)
+ckpt_dir = get_last_checkpoint("st_blip2_ckpt")
+model = ContextBLIP2Wrapper.from_pretrained(ckpt_dir).to(device)
 tokenizer = AutoTokenizer.from_pretrained(lm_name)
 processor = STContextProcessor(SentenceTransformer(st_name), tokenizer)
 
