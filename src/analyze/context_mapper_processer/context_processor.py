@@ -15,7 +15,7 @@ class STContextProcessor(ProcessorMixin):
         self.max_length = max_length
 
         # self.sot = self.tokenizer.encode("<start_of_turn>", add_special_tokens=False)[0]
-        # self.bos = tokenizer.encode("<bos>", add_special_tokens=False)[0]
+        self.bos_id = tokenizer.encode("<bos>", add_special_tokens=False)[0]
         
 
     def __call__(
@@ -35,7 +35,7 @@ class STContextProcessor(ProcessorMixin):
         )  # [B, Dvec] (or [Dvec] if single)
 
         if chat_format:
-            t = self._tokenize(q, a)
+            t = self._tokenize(context, question, answer)
             input_ids = t["input_ids"]
             attention_mask = torch.tensor([1] * len(input_ids))
         else:
@@ -48,7 +48,7 @@ class STContextProcessor(ProcessorMixin):
                 add_special_tokens=False,
             )
             eos_id = self.tokenizer.eos_token_id
-            input_ids = torch.tensor(q_enc["input_ids"] + [eos_id] + a_enc["input_ids"] + [eos_id])
+            input_ids = torch.tensor([self.bos_id] + q_enc["input_ids"] + [eos_id] + a_enc["input_ids"] + [eos_id])
 
             attention_mask = torch.tensor([1] * len(input_ids))
             # labels = (
@@ -65,19 +65,19 @@ class STContextProcessor(ProcessorMixin):
             "sentence_vec": ctx_vec,
         }
 
-    def _tokenize(self, q, a):
+    def _tokenize(self, c, q, a):
         messages = [
             [
                 {
                     "role": "system",
-                    "content": [{"type": "text", "text": "You are a helpful assistant.\n"},]
+                    "content": [{"type": "text", "text": f"You are a helpful assistant.\n{c}"},]
                 },
                 {
                     "role": "user",
                     "content": [{"type": "text", "text": question},]
                 },
                 {
-                    "role": "system",
+                    "role": "assistant",
                     "content": [{"type": "text", "text": a },]
                 },
             ],

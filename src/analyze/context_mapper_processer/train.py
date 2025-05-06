@@ -60,6 +60,7 @@ class QADataCollator:
         batch["sentence_vec"] = sentence_vecs
         return batch
 
+device = "cuda" if torch.cuda.is_available() else "cpu"
 
 # 1. components ---------------------------------------------------------------
 # st_model_name = "sentence-transformers/all-MiniLM-L6-v2"
@@ -99,7 +100,7 @@ ds = ds.train_test_split(test_size=0.1)
 # 3. train --------------------------------------------------------------------
 training_args = TrainingArguments(
     output_dir="st_blip2_ckpt",
-    per_device_train_batch_size=16,
+    per_device_train_batch_size=8,
     learning_rate=5e-4,
     num_train_epochs=1,
     bf16=True,

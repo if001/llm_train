@@ -65,11 +65,11 @@ class ContextBLIP2Wrapper(PreTrainedModel):
         super().__init__(config)
 
         # ① backbone LM
-        self.base_lm = AutoModelForCausalLM.from_pretrained(config.lm_name)
+        # self.base_lm = AutoModelForCausalLM.from_pretrained(config.lm_name)
+        # gemma3を使う場合
+        self.base_lm = AutoModelForCausalLM.from_pretrained(config.lm_name, attn_implementation='eager')
         if hasattr(self.base_lm, "tie_weights"):
-            self.base_lm.tie_weights() 
-        ## gemma3を使う場合
-        # self.base_lm = AutoModelForCausalLM.from_pretrained(lm_name, attn_implementation='eager')
+            self.base_lm.tie_weights()
 
         lm_emb_dim = self.base_lm.get_input_embeddings().embedding_dim
 
@@ -86,6 +86,7 @@ class ContextBLIP2Wrapper(PreTrainedModel):
         # ③ (optional) freeze LM to train only mapper
         for p in self.base_lm.parameters():
             p.requires_grad = False
+        self.tie_weights()
 
     # ===== forward =====
     def forward(
@@ -100,11 +101,6 @@ class ContextBLIP2Wrapper(PreTrainedModel):
 
         # a) build prefix embeddings
         prefix_embeds = self.prefix_mapper(sentence_vec)  # [B, N, Demb]
-
-        B, L = input_ids.shape
-        N = self.num_prefix_tokens
-        prefix_embeds = torch.zeros([B, N, 768])
-
 
         # b) normal token embeddings
         tok_embeds = self.base_lm.get_input_embeddings()(input_ids)  # [B, L, Demb]
@@ -179,3 +175,9 @@ class ContextBLIP2Wrapper(PreTrainedModel):
             self._filter_state_dict_for_save(self.state_dict()),
             **kwargs,
         )
+
+    def tie_weights(self):
+        """
+        デフォルトのtie_weightがうまく動かないので無理やりセットする
+        """
+        self.base_lm.lm_head.weight = nn.Parameter(self.base_lm.model.embed_tokens.weight.clone())
