@@ -1,6 +1,6 @@
 import torch
 from torch import nn
-from transformers import AutoModelForCausalLM, AutoConfig, PreTrainedModel
+from transformers import AutoModelForCausalLM, AutoConfig, PreTrainedModel, PretrainedConfig
 
 
 class STPrefixMapper(nn.Module):
@@ -32,41 +32,61 @@ class STPrefixMapper(nn.Module):
         x = self.mapper(st_vec)  # [B, N*Demb]
         return x.view(B, self.num_tokens, -1)  # [B, N, Demb]
 
+class ContextBlip2Config(PretrainedConfig):
+    model_type = "context_blip2"
+
+    def __init__(
+        self,
+        lm_name: str          = "gpt2",
+        st_dim:  int          = 768,
+        num_prefix_tokens: int = 16,
+        hidden_dim: int | None = None,
+        **kwargs
+    ):
+        super().__init__(**kwargs)
+        self.lm_name          = lm_name
+        self.st_dim           = st_dim
+        self.num_prefix_tokens = num_prefix_tokens
+        self.hidden_dim       = hidden_dim
+
 
 class ContextBLIP2Wrapper(PreTrainedModel):
     """
     Wrap any causal-LM so it can consume a SentenceTransformer vector
     as a learned prefix (BLIP-2 Q-Former style).
     """
-
-    config_class = AutoConfig  # lets us use from_pretrained easily
+    config_class = ContextBlip2Config
 
     def __init__(
         self,
-        lm_name: str = "gpt2",
-        st_dim: int = 768,
-        num_prefix_tokens: int = 16,
-        hidden_dim: int | None = None,
+        config: ContextBlip2Config
     ):
-        config = AutoConfig.from_pretrained(lm_name)
+
         super().__init__(config)
 
         # ① backbone LM
-        self.lm = AutoModelForCausalLM.from_pretrained(lm_name)
-        ## gemma3を使う場合
-        # self.lm = AutoModelForCausalLM.from_pretrained(lm_name, attn_implementation='eager')
+        # self.base_lm = AutoModelForCausalLM.from_pretrained(config.lm_name)
+        # gemma3を使う場合
+        self.base_lm = AutoModelForCausalLM.from_pretrained(config.lm_name, attn_implementation='eager')
+        if hasattr(self.base_lm, "tie_weights"):
+            self.base_lm.tie_weights()
 
-        lm_emb_dim = self.lm.get_input_embeddings().embedding_dim
+        lm_emb_dim = self.base_lm.get_input_embeddings().embedding_dim
 
         # ② tiny mapper
         self.prefix_mapper = STPrefixMapper(
-            st_dim, lm_emb_dim, num_prefix_tokens, hidden_dim
+            config.st_dim,
+            lm_emb_dim,
+            config.num_prefix_tokens,
+            config.hidden_dim,
         )
-        self.num_prefix_tokens = num_prefix_tokens
+
+        self.num_prefix_tokens = config.num_prefix_tokens
 
         # ③ (optional) freeze LM to train only mapper
-        for p in self.lm.parameters():
+        for p in self.base_lm.parameters():
             p.requires_grad = False
+        self.tie_weights()
 
     # ===== forward =====
     def forward(
@@ -83,7 +103,7 @@ class ContextBLIP2Wrapper(PreTrainedModel):
         prefix_embeds = self.prefix_mapper(sentence_vec)  # [B, N, Demb]
 
         # b) normal token embeddings
-        tok_embeds = self.lm.get_input_embeddings()(input_ids)  # [B, L, Demb]
+        tok_embeds = self.base_lm.get_input_embeddings()(input_ids)  # [B, L, Demb]
 
         # c) concat
         inputs_embeds = torch.cat([prefix_embeds, tok_embeds], dim=1)
@@ -97,7 +117,7 @@ class ContextBLIP2Wrapper(PreTrainedModel):
             )
             attention_mask = torch.cat([prefix_mask, attention_mask], dim=1)
 
-        B = input_ids.size(0)
+        B, L = input_ids.shape
         device = input_ids.device
         N = self.num_prefix_tokens
         if labels is not None:
@@ -106,10 +126,15 @@ class ContextBLIP2Wrapper(PreTrainedModel):
             )
             labels = torch.cat([prefix_ignore, labels], dim=1)
 
+        prefix_pos = torch.arange(0, N, device=device).unsqueeze(0).expand(B, -1)
+        token_pos  = torch.arange(N, N + L, device=device).unsqueeze(0).expand(B, -1)
+        position_ids = torch.cat([prefix_pos, token_pos], dim=1)     # [B, N+L]
+
         # e) run LM
-        return self.lm(
+        return self.base_lm(
             inputs_embeds=inputs_embeds,
             attention_mask=attention_mask,
+            position_ids=position_ids,
             labels=labels,
         )
 
@@ -123,7 +148,7 @@ class ContextBLIP2Wrapper(PreTrainedModel):
         **gen_kwargs,
     ):
         prefix_embeds = self.prefix_mapper(sentence_vec)
-        tok_embeds = self.lm.get_input_embeddings()(input_ids)
+        tok_embeds = self.base_lm.get_input_embeddings()(input_ids)
         inputs_embeds = torch.cat([prefix_embeds, tok_embeds], dim=1)
 
         if attention_mask is not None:
@@ -134,8 +159,25 @@ class ContextBLIP2Wrapper(PreTrainedModel):
             )
             attention_mask = torch.cat([prefix_mask, attention_mask], dim=1)
 
-        return self.lm.generate(
+        return self.base_lm.generate(
             inputs_embeds=inputs_embeds,
             attention_mask=attention_mask,
             **gen_kwargs,
         )
+
+    def _filter_state_dict_for_save(self, state_dict):
+        """lm. で始まるキーを落とす"""
+        return {k: v for k, v in state_dict.items() if not k.startswith("base_lm.")}
+
+    def save_pretrained(self, save_directory, **kwargs):
+        super().save_pretrained(
+            save_directory,
+            self._filter_state_dict_for_save(self.state_dict()),
+            **kwargs,
+        )
+
+    def tie_weights(self):
+        """
+        デフォルトのtie_weightがうまく動かないので無理やりセットする
+        """
+        self.base_lm.lm_head.weight = nn.Parameter(self.base_lm.model.embed_tokens.weight.clone())

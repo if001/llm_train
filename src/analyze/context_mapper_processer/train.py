@@ -7,7 +7,7 @@ from transformers import (
 )
 from sentence_transformers import SentenceTransformer
 
-from model import ContextBLIP2Wrapper
+from model import ContextBLIP2Wrapper, ContextBlip2Config
 from context_processor import STContextProcessor
 
 
@@ -39,7 +39,7 @@ class QADataCollator:
             if not torch.is_tensor(vec):
                 vec = torch.tensor(vec, dtype=torch.float)
             sentence_vecs.append(vec)
-            q_lens.append(f.pop("q_len"))
+            # q_lens.append(f.pop("q_len"))
 
         sentence_vecs = torch.stack(sentence_vecs)
 
@@ -51,33 +51,36 @@ class QADataCollator:
         )  # -> {"input_ids", "attention_mask", ...}
 
         # 3) labels = input_ids.clone() し、質問部分を -100 でマスク
-        labels = batch["input_ids"].clone()
-        for i, q_len in enumerate(q_lens):
-            labels[i, :q_len] = self.ignore_index
+        #labels = batch["input_ids"].clone()
+        #for i, q_len in enumerate(q_lens):
+        #    labels[i, :q_len] = self.ignore_index
 
         # 4) 追加フィールドをバッチに戻す
-        batch["labels"] = labels
+        #batch["labels"] = labels
         batch["sentence_vec"] = sentence_vecs
         return batch
 
+device = "cuda" if torch.cuda.is_available() else "cpu"
 
 # 1. components ---------------------------------------------------------------
 # st_model_name = "sentence-transformers/all-MiniLM-L6-v2"
 st_model_name = "cl-nagoya/ruri-base-v2"
 
 # lm_name = "microsoft/Phi-4-mini-instruct"
-lm_name = "google/gemma-3-1b-pt"
+# lm_name = "google/gemma-3-1b-pt"
+lm_name = "google/gemma-3-1b-it"
 
 sentence_encoder = SentenceTransformer(st_model_name)
 tokenizer = AutoTokenizer.from_pretrained(lm_name)
 processor = STContextProcessor(sentence_encoder, tokenizer, max_length=1024)
 
-model = ContextBLIP2Wrapper(
+config = ContextBlip2Config(
     lm_name=lm_name,
-    st_dim=sentence_encoder.get_sentence_embedding_dimension(),
+    # st_dim=sentence_encoder.get_sentence_embedding_dimension(),
     num_prefix_tokens=16,
-    hidden_dim=512,
+    hidden_dim=512
 )
+model = ContextBLIP2Wrapper(config)
 
 # 2. dummy data ---------------------------------------------------------------
 # expects a dataset with {"context": ..., "input": ..., "output": ...}
@@ -91,13 +94,13 @@ def preprocess(ex):
     answer = ex["query"]
     return processor(context, query, answer)
 
-
+raw_ds=raw_ds.shuffle(seed=42).select(range(20000))
 ds = raw_ds.map(preprocess, remove_columns=raw_ds.column_names)
 ds = ds.train_test_split(test_size=0.1)
 # 3. train --------------------------------------------------------------------
 training_args = TrainingArguments(
     output_dir="st_blip2_ckpt",
-    per_device_train_batch_size=16,
+    per_device_train_batch_size=8,
     learning_rate=5e-4,
     num_train_epochs=1,
     bf16=True,
@@ -108,8 +111,8 @@ training_args = TrainingArguments(
     logging_steps=50,
 )
 
-data_collator = QADataCollator(tokenizer)
-# data_collator = DataCollatorForLanguageModeling(tokenizer, mlm=False)
+# data_collator = QADataCollator(tokenizer)
+data_collator = DataCollatorForLanguageModeling(tokenizer, mlm=False)
 
 trainer = Trainer(
     model=model,
