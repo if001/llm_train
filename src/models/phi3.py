@@ -58,8 +58,8 @@ from transformers.utils import (
 )
 
 
-# from models.phi3_config import Phi3Config
-from phi3_config import Phi3Config
+from models.phi3_config import Phi3Config
+# from phi3_config import Phi3Config
 
 
 logger = logging.get_logger(__name__)
