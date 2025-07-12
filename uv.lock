@@ -251,10 +251,9 @@ wheels = [
 
 [[package]]
 name = "datasets"
-version = "3.3.0"
+version = "3.6.0"
 source = { registry = "https://pypi.org/simple" }
 dependencies = [
-    { name = "aiohttp" },
     { name = "dill" },
     { name = "filelock" },
     { name = "fsspec", extra = ["http"] },
@@ -269,9 +268,9 @@ dependencies = [
     { name = "tqdm" },
     { name = "xxhash" },
 ]
-sdist = { url = "https://files.pythonhosted.org/packages/a2/e5/1af665c7ddd2b5dc5e913baa93d0857c7722fd302d01cf2892d2e18cd7f9/datasets-3.3.0.tar.gz", hash = "sha256:54c607b06f6eaa1572e21e200d2870d89d50e3bcc622dc2021a53a6ce4f684c2", size = 563769 }
+sdist = { url = "https://files.pythonhosted.org/packages/1a/89/d3d6fef58a488f8569c82fd293ab7cbd4250244d67f425dcae64c63800ea/datasets-3.6.0.tar.gz", hash = "sha256:1b2bf43b19776e2787e181cfd329cb0ca1a358ea014780c3581e0f276375e041", size = 569336 }
 wheels = [
-    { url = "https://files.pythonhosted.org/packages/eb/9a/5448306807367232a7209fb6881890244b374c87d74e1e229abcb133e115/datasets-3.3.0-py3-none-any.whl", hash = "sha256:22312d09626f8fc3aa0a237b0c164997f5903bddd4c4c9e27dbaf563754c681b", size = 484866 },
+    { url = "https://files.pythonhosted.org/packages/20/34/a08b0ee99715eaba118cbe19a71f7b5e2425c2718ef96007c325944a1152/datasets-3.6.0-py3-none-any.whl", hash = "sha256:25000c4a2c0873a710df127d08a202a06eab7bf42441a6bc278b499c2f72cd1b", size = 491546 },
 ]
 
 [[package]]
@@ -511,7 +510,7 @@ dependencies = [
 
 [package.metadata]
 requires-dist = [
-    { name = "datasets", specifier = ">=3.3.0" },
+    { name = "datasets", specifier = "==3.6.0" },
     { name = "fugashi", specifier = ">=1.4.0" },
     { name = "sentence-transformers", specifier = ">=4.1.0" },
     { name = "sentencepiece", specifier = ">=0.2.0" },
