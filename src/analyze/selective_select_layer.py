@@ -63,7 +63,7 @@ def analyze_layer_selection(model, dataloader, device="cuda"):
 
 def parse_arguments():
     parser = argparse.ArgumentParser()
-    parser.add_argument("--model_name", type=str, required=True)
+    # parser.add_argument("--model_name", type=str, required=True)
     parser.add_argument("--dataset_id", type=str, required=True)
     parser.add_argument("--weight_path", type=str, required=True)
     parser.add_argument(
@@ -89,25 +89,35 @@ def main():
     model = SelectiveForCausalLM.from_pretrained(args.weight_path)
 
     dataset = load_dataset(args.dataset_id, split="train", num_proc=8)
-    dataloader = DataLoader(dataset, batch_size=2)
 
-    # 分析の実行
+    def preprocess(examples):
+        return tokenizer(
+            examples["text"],
+            truncation=True,
+            padding="max_length",
+            max_length=1024,
+            return_tensors="pt",
+        )
+
+    tokenized_dataset = dataset.map(
+        preprocess, batched=True, remove_columns=["text", "title", "url"]
+    )
+    tokenized_dataset.set_format("torch")
+    dataloader = DataLoader(tokenized_dataset, batch_size=8)
+
     device = "cuda" if torch.cuda.is_available() else "cpu"
     layer_selection_results = analyze_layer_selection(model, dataloader, device)
 
-    # 結果の表示 (例)
     for batch_idx, batch_results in enumerate(layer_selection_results):
         print(f"Batch {batch_idx + 1}:")
         for layer_idx, layer_results in enumerate(batch_results):
             print(f"  Layer {layer_idx}: {layer_results}")
 
-    # より詳細な分析 (例: 各層の選択回数の集計)
     all_indices = []
     for batch_results in layer_selection_results:
         for layer_results in batch_results:
             all_indices.extend(layer_results)
-
-    counts = np.bincount(all_indices)  # NumPy を使用してカウント
+    counts = np.bincount(all_indices)
     print("\nLayer Selection Counts (Overall):")
     for i, count in enumerate(counts):
         if i < model.model.num_hidden_layers:

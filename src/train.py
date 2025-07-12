@@ -34,7 +34,7 @@ from trainer.callbacks import (
     ComputeThroughputCallback,
     TokenCountCallback,
     OverrideGlobalStepCallback,
-    CuriosityLossWandbLogCallback
+    CuriosityLossWandbLogCallback,
 )
 from utils.prepare_dataset import prepare_dataset
 
@@ -96,7 +96,7 @@ def parse_arguments():
     parser.add_argument("--ignore_data_skip", action="store_true")
     parser.add_argument("--use_packed_ds", action="store_true")
     parser.add_argument("--trainer", type=str)
-    
+
     parser.add_argument("--from_model_path", default=None, type=str)
     parser.add_argument("--to_model_name", default=None, type=str)
 
@@ -223,13 +223,18 @@ def main():
             max_seq_length=model.config.max_position_embeddings,
         )
     else:
+
         def tokenize_fn(examples):
-            return tokenizer(examples["text"], truncation=True, padding="max_length", max_length=2048)
+            return tokenizer(
+                examples["text"], truncation=True, padding="max_length", max_length=2048
+            )
 
         tokenized_dataset = dataset.map(tokenize_fn, batched=True)
-        tokenized_dataset.set_format(type="torch", columns=["input_ids", "attention_mask"])
-        train_dataset = tokenized_dataset['train']
-        test_dataset = tokenized_dataset['test']
+        tokenized_dataset.set_format(
+            type="torch", columns=["input_ids", "attention_mask"]
+        )
+        train_dataset = tokenized_dataset["train"]
+        test_dataset = tokenized_dataset["test"]
 
         def data_collator(features):
             batch = {
@@ -282,7 +287,7 @@ def main():
     print("parallel_mode: ", training_args.parallel_mode)
     print("world_size", training_args.world_size)
 
-     # computeThroughput = ComputeThroughputCallback(
+    # computeThroughput = ComputeThroughputCallback(
     #     vocab_size=model.config.vocab_size,
     #     # seq_length=model.config.max_sequence_length,
     #     seq_length=model.config.max_position_embeddings,

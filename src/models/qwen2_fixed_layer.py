@@ -68,7 +68,7 @@ class Qwen2MoEDecoderLayer(nn.Module):
 
         # Routing
         router_logits = self.router(hidden_states)
-        router_probs = F.softmax(router_logits, dim=-1)
+        router_probs = nn.functional.softmax(router_logits, dim=-1)
         expert_choice = torch.argmax(router_probs, dim=-1)
 
         expert1_mask = (expert_choice == 0).unsqueeze(-1).float()
@@ -107,21 +107,23 @@ def get_qwen(model_name):
         model.config.max_window_layers = 25
         model.config.num_hidden_layers = 25
 
-    if "qwen2_0.5b_24" in model_name:
+    elif "qwen2_0.5b_24" in model_name:
         for i, layer in enumerate(model.model.layers):
             for param in layer.parameters():
                 param.requires_grad = False
             if i == 23:
                 for param in layer.mlp.parameters():
-                    param.requires_grad = False
+                    param.requires_grad = True
 
-    if "qwen2_0.5b_24_moe" in model_name:
-        pretrained_layer = model.transformer.layers[23]
-        model.transformer.layers[23] = Qwen2MoEDecoderLayer(config, pretrained_layer, layer_idx=23)
+    elif "qwen2_0.5b_24_moe" in model_name:
+        pretrained_layer = model.model.layers[23]
+        model.model.layers[23] = Qwen2MoEDecoderLayer(config, pretrained_layer, layer_idx=23)
 
         for i, layer in enumerate(model.model.layers):
             for param in layer.parameters():
                 param.requires_grad = (i == 23)
+    else:
+        raise RuntimeError('qwen model not impl,', model_name)
 
     trainable = [(name, p.numel()) for name, p in model.named_parameters() if p.requires_grad]
     print("Trainable parameters:")

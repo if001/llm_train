@@ -30,6 +30,7 @@ def main():
     config["pad_token_id"] = tokenizer.pad_token_id
 
     model = AutoModelForCausalLM.from_pretrained(args.checkpoint_path)
+    model.to("cuda")
     # model = get_hf_models(config)
     # state_dict = load_file(args.checkpoint_path)
     # model.load_state_dict(state_dict)

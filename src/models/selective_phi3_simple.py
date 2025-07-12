@@ -1,5 +1,5 @@
 """
-次のlayerもしくはスキップするかを選択
+layerをスキップするかを選択
 """
 
 from typing import Callable, List, Optional, Tuple, Union
@@ -37,7 +37,7 @@ from transformers.utils import (
 )
 
 # from configuration_phi3 import Phi3Config  # Assuming configuration is in the same directory
-from .phi3 import (
+from phi3 import (
     Phi3ForCausalLM,
     Phi3MLP,
     Phi3Attention,
@@ -79,18 +79,15 @@ class SelectiveCausalLMOutputWithPast(CausalLMOutputWithPast):
     selected_layer_indices: Optional[List[List[int]]] = None
 
 
-class LayerSelection(nn.Module):
+class LayerSkipSelection(nn.Module):
     """
     A network that selects one layer or residual connection from a set of layers.
     Gumbel-Softmax trick を利用して、確率的かつ微分可能な選択を行う.
     """
 
-    def __init__(self, num_layers: int, hidden_size: int, temperature: float = 1.0):
+    def __init__(self, hidden_size: int, temperature: float = 1.0):
         super().__init__()
-        self.selector = nn.Linear(
-            hidden_size, num_layers + 1
-        )  # +1 for residual connection
-        self.num_layers = num_layers
+        self.selector = nn.Linear(hidden_size, 1)
         self.temperature = temperature  # Gumbel-Softmax temperature
 
     def forward(self, hidden_states: torch.Tensor) -> torch.Tensor:
@@ -105,14 +102,14 @@ class LayerSelection(nn.Module):
         logits = self.selector(hidden_states)
         # Gumbel-Softmax
         selection_probs = F.gumbel_softmax(
-            logits, tau=self.temperature, hard=True, dim=-1
+            logits, tau=self.temperature, hard=False, dim=-1
         )
         # hard=True: one-hotベクトルを返す。推論時はこちらを利用
         # # hard=False: one-hotベクトルに近似された連続的なベクトルを返す。学習時はこちらを利用
         return selection_probs
 
 
-class SelectiveDecoderLayer(nn.Module):
+class SkippableDecoderLayer(nn.Module):
     def __init__(self, config: Phi3Config, layer_idx: int):
         super().__init__()
         self.hidden_size = config.hidden_size
@@ -137,44 +134,53 @@ class SelectiveDecoderLayer(nn.Module):
         use_cache: Optional[bool] = False,
         cache_position: Optional[torch.LongTensor] = None,
         position_embeddings: Optional[Tuple[torch.Tensor, torch.Tensor]] = None,
+        skip: bool = False
     ) -> Tuple[
         torch.FloatTensor, Optional[Tuple[torch.FloatTensor, torch.FloatTensor]]
     ]:
+        if skip:
+            residual = hidden_states
+            hidden_states = self.input_layernorm(hidden_states)
+            hidden_states = self.mlp(hidden_states)
+            hidden_states = residual + self.resid_mlp_dropout(
+                hidden_states
+            )
+            return hidden_states
+        else:
+            residual = hidden_states
+            hidden_states = self.input_layernorm(hidden_states)
+            # Self Attention
+            hidden_states, self_attn_weights = self.self_attn(
+                hidden_states=hidden_states,
+                attention_mask=attention_mask,
+                position_ids=position_ids,
+                past_key_value=past_key_value,
+                output_attentions=output_attentions,
+                use_cache=use_cache,
+                cache_position=cache_position,
+                position_embeddings=position_embeddings,
+                **kwargs,
+            )
+            hidden_states = residual + self.resid_attn_dropout(
+                hidden_states
+            )  # main diff with Llama
 
-        residual = hidden_states
-        hidden_states = self.input_layernorm(hidden_states)
+            residual = hidden_states
+            hidden_states = self.post_attention_layernorm(hidden_states)
 
-        # Self Attention
-        attn_outputs = self.self_attn(
-            hidden_states=hidden_states,
-            attention_mask=attention_mask,
-            position_ids=position_ids,
-            past_key_value=past_key_value,
-            output_attentions=output_attentions,
-            use_cache=use_cache,
-            cache_position=cache_position,
-            position_embeddings=position_embeddings,
-        )
-        attn_output = attn_outputs[0]
-        self_attn_weights = attn_outputs[1] if output_attentions else None
+            hidden_states = self.mlp(hidden_states)
+            hidden_states = residual + self.resid_mlp_dropout(
+                hidden_states
+            )  # main diff with Llama
 
-        attn_output = self.resid_attn_dropout(attn_output)
-        hidden_states = residual + attn_output  # residual connection.
+            outputs = (hidden_states,)
+            if output_attentions:
+                outputs += (self_attn_weights,)
 
-        residual = hidden_states
-        hidden_states = self.post_attention_layernorm(hidden_states)
-        mlp_output = self.mlp(hidden_states)
-        mlp_output = self.resid_mlp_dropout(mlp_output)
-        hidden_states = residual + mlp_output
-
-        outputs = (hidden_states,)
-        if output_attentions:
-            outputs += (self_attn_weights,)
-
-        return outputs
+            return outputs
 
 
-class SelectiveModel(Phi3PreTrainedModel):
+class SelectiveSimpleModel(Phi3PreTrainedModel):
     def __init__(self, config: Phi3Config):
         super().__init__(config)
         self.padding_idx = config.pad_token_id
@@ -185,7 +191,7 @@ class SelectiveModel(Phi3PreTrainedModel):
         )
         self.layers = nn.ModuleList(
             [
-                SelectiveDecoderLayer(config, layer_idx)
+                SkippableDecoderLayer(config, layer_idx)
                 for layer_idx in range(config.num_hidden_layers)
             ]
         )
@@ -196,7 +202,7 @@ class SelectiveModel(Phi3PreTrainedModel):
         # Layer selection networks
         self.layer_selectors = nn.ModuleList(
             [
-                LayerSelection(config.num_hidden_layers, config.hidden_size)
+                LayerSkipSelection(config.hidden_size)
                 for _ in range(config.num_hidden_layers)
             ]
         )
@@ -275,19 +281,7 @@ class SelectiveModel(Phi3PreTrainedModel):
             )
 
         if position_ids is None:
-            if past_key_values is not None and use_cache:
-                # キャッシュ使用時、かつ position_ids が明示的に与えられていない場合:
-                # cache_position を使う (past_key_values の最後の位置 + 1 から始まる)
-                position_ids = cache_position.unsqueeze(0)
-            else:
-                # キャッシュを使用しない、または最初のステップの場合:
-                # input_ids/inputs_embeds の長さに応じて 0 から始まる連番を作成
-                position_ids = torch.arange(
-                    0,
-                    inputs_embeds.shape[1],
-                    dtype=torch.long,
-                    device=inputs_embeds.device,
-                ).unsqueeze(0)
+            position_ids = cache_position.unsqueeze(0)
 
         causal_mask = self._update_causal_mask(
             attention_mask,
@@ -303,112 +297,57 @@ class SelectiveModel(Phi3PreTrainedModel):
         all_hidden_states = () if output_hidden_states else None
         all_self_attns = () if output_attentions else None
 
-        # Initialize past_key_values for each layer if not provided
-        if past_key_values is None or len(past_key_values) == 0:
-            past_key_values = [None] * len(self.layers)
 
-        all_selected_layer_indices = []
-        for i in range(self.num_hidden_layers):
+        for i, decoder_layer in enumerate(self.layers[: self.config.num_hidden_layers]):
             if output_hidden_states:
                 all_hidden_states += (hidden_states,)
 
-            # Layer Selection for the *next* layer
             selected_layer_one_hot = self.layer_selectors[i](hidden_states)
+            print('selected_layer_one_hot', selected_layer_one_hot)
+            if self.gradient_checkpointing and self.training:
+                layer_outputs = self._gradient_checkpointing_func(
+                    decoder_layer.__call__,
+                    hidden_states,
+                    causal_mask,
+                    position_ids,
+                    past_key_values,
+                    output_attentions,
+                    use_cache,
+                    cache_position,
+                    position_embeddings,
+                    skip
+                )
+            else:
+                layer_outputs = decoder_layer(
+                    hidden_states,
+                    attention_mask=causal_mask,
+                    position_ids=position_ids,
+                    past_key_value=past_key_values,
+                    output_attentions=output_attentions,
+                    use_cache=use_cache,
+                    cache_position=cache_position,
+                    position_embeddings=position_embeddings,
+                    skip=skip,
+                    **flash_attn_kwargs,
+                )
 
-            # Residual connection handling
-            residual = hidden_states
+            hidden_states = layer_outputs[0]
 
-            batch_size = hidden_states.size(0)
-            next_hidden_states = torch.zeros_like(hidden_states)
-            current_layer_selected_indices = []
-            for batch_idx in range(batch_size):
-                current_selected_layer_idx = torch.argmax(
-                    selected_layer_one_hot[batch_idx]
-                ).item()
-                current_layer_selected_indices.append(current_selected_layer_idx)
-
-                if (
-                    current_selected_layer_idx == self.num_hidden_layers
-                ):  # Residual connection
-                    next_hidden_states[batch_idx] = residual[batch_idx]
-                else:
-                    selected_layer = self.layers[current_selected_layer_idx]
-                    current_position_ids = position_ids[
-                        :,
-                        cache_position[batch_idx] : cache_position[batch_idx]
-                        + hidden_states.size(1),
-                    ]
-
-                    if self.gradient_checkpointing and self.training:
-                        layer_outputs = self._gradient_checkpointing_func(
-                            selected_layer.__call__,
-                            hidden_states[batch_idx].unsqueeze(
-                                0
-                            ),  # Process one batch item
-                            (
-                                causal_mask[batch_idx].unsqueeze(0)
-                                if causal_mask is not None
-                                else None
-                            ),
-                            current_position_ids,  # position_ids[batch_idx].unsqueeze(0),
-                            past_key_values[current_selected_layer_idx],
-                            output_attentions,
-                            use_cache,
-                            cache_position,
-                            position_embeddings,
-                        )
-                    else:
-                        layer_outputs = selected_layer(
-                            hidden_states=hidden_states[batch_idx].unsqueeze(
-                                0
-                            ),  # Process one batch item
-                            attention_mask=(
-                                causal_mask[batch_idx].unsqueeze(0)
-                                if causal_mask is not None
-                                else None
-                            ),
-                            position_ids=current_position_ids,  # position_ids[batch_idx].unsqueeze(0),
-                            past_key_value=past_key_values[current_selected_layer_idx],
-                            output_attentions=output_attentions,
-                            use_cache=use_cache,
-                            cache_position=cache_position,
-                            position_embeddings=position_embeddings,
-                            **flash_attn_kwargs,
-                        )
-
-                    next_hidden_states[batch_idx] = layer_outputs[0]
-
-                    if output_attentions:
-                        if all_self_attns is None or all_self_attns == ():
-                            all_self_attns = [None] * self.num_hidden_layers
-                        if all_self_attns[current_selected_layer_idx] is None:
-                            all_self_attns[current_selected_layer_idx] = []
-                        all_self_attns[current_selected_layer_idx].append(
-                            layer_outputs[1]
-                        )
-            all_selected_layer_indices.append(current_layer_selected_indices)
-            hidden_states = next_hidden_states
+            if output_attentions:
+                all_self_attns += (layer_outputs[1],)
 
         hidden_states = self.norm(hidden_states)
+
         # add hidden states from the last decoder layer
         if output_hidden_states:
             all_hidden_states += (hidden_states,)
 
-        # stack attention
-        if output_attentions:
-            all_self_attns = [
-                torch.cat(layer_attns, dim=0) if layer_attns is not None else None
-                for layer_attns in all_self_attns
-            ]
-
-        output = SelectiveModelOutput(
+        output = BaseModelOutputWithPast(
             last_hidden_state=hidden_states,
             past_key_values=past_key_values if use_cache else None,
             hidden_states=all_hidden_states,
             attentions=all_self_attns,
-            selected_layer_indices=all_selected_layer_indices,
         )
-
         return output if return_dict else output.to_tuple()
 
     def _update_causal_mask(
@@ -581,10 +520,10 @@ class SelectiveModel(Phi3PreTrainedModel):
         return causal_mask
 
 
-class SelectiveForCausalLM(Phi3ForCausalLM):
+class SelectiveSimpleForCausalLM(Phi3ForCausalLM):
     def __init__(self, config):
         super().__init__(config)
-        self.model = SelectiveModel(config)
+        self.model = SelectiveSimpleModel(config)
 
     def prepare_inputs_for_generation(
         self,
@@ -715,7 +654,7 @@ def sampleRun():
         _attn_implementation="eager",
     )
 
-    model = SelectiveForCausalLM(config)
+    model = SelectiveSimpleForCausalLM(config)
 
     # Create some dummy inputs
     batch_size = 2
