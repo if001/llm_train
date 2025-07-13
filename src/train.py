@@ -88,7 +88,7 @@ def parse_arguments():
     parser.add_argument("--warmup_steps", default=300, type=int)
     parser.add_argument("--logging_steps", default=300, type=int)
     parser.add_argument("--eval_steps", default=300, type=int)
-    parser.add_argument("--ds_select_len", default=None, type=int)
+    # parser.add_argument("--ds_select_len", default=None, type=int)
     parser.add_argument("--batch_size", default=1, type=int)
     parser.add_argument("--save_steps", default=100, type=int)
     parser.add_argument("--lr_scheduler_type", default="linear", type=str)
@@ -105,10 +105,12 @@ def parse_arguments():
     return args
 
 
-def make_dataset(dataset_ids, select_len=None, shuffle_each_ds=False):
+def make_dataset(dataset_ids, shuffle_each_ds=False):
     ds = []
     # print(datasets)
     for dataset_id in dataset_ids:
+        if " " in dataset_id:
+            dataset_id, select_len = dataset_id.split(" ")
         dataset = load_dataset(dataset_id, split="train", num_proc=8)
         if select_len:
             dataset = dataset.shuffle(seed=42).select(range(select_len))
@@ -203,7 +205,7 @@ def main():
     print(model.config)
 
     print("--- making dataset ... ---")
-    dataset = make_dataset(args.dataset_ids, select_len=args.ds_select_len)
+    dataset = make_dataset(args.dataset_ids)
     if args.use_packed_ds:
         data_collator = DataCollatorForLanguageModeling(tokenizer=tokenizer, mlm=False)
         train_dataset = prepare_dataset(
