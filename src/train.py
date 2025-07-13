@@ -123,6 +123,7 @@ def make_dataset(dataset_ids, shuffle_each_ds=False):
                 filtered_list.append(name)
         ds_part = ds_part.remove_columns(filtered_list)
         ds.append(ds_part)
+        print(dataset_id, ds)
     combined_dataset = concatenate_datasets(ds)
     print("dataset", combined_dataset)
 
