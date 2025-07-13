@@ -113,6 +113,7 @@ def make_dataset(dataset_ids, shuffle_each_ds=False):
         select_len = None
         if " " in dataset_id:
             dataset_id, select_len = dataset_id.split(" ")
+            select_len = int(select_len)
         dataset = load_dataset(dataset_id, split="train", num_proc=8)
         if select_len:
             dataset = dataset.shuffle(seed=42).select(range(select_len))
@@ -120,12 +121,19 @@ def make_dataset(dataset_ids, shuffle_each_ds=False):
         # ds_part = dataset.shuffle(seed=42)
         ds_part = dataset
         filtered_list = []
+        # todo 
+        if dataset_id == 'if001/MALLS-ja-explanation':
+          def rename(e):
+            e['text'] = e['explain']
+            del e["explain"]
+            return e
+          ds_part = ds_part.map(rename)        
         for name in ds_part.column_names:
             if "text" != name:
                 filtered_list.append(name)
         ds_part = ds_part.remove_columns(filtered_list)
         ds.append(ds_part)
-        print(dataset_id, ds)
+        print(dataset_id, ds_part)
     combined_dataset = concatenate_datasets(ds)
     print("dataset", combined_dataset)
 
