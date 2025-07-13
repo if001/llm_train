@@ -107,8 +107,10 @@ def parse_arguments():
 
 def make_dataset(dataset_ids, shuffle_each_ds=False):
     ds = []
+    
     # print(datasets)
     for dataset_id in dataset_ids:
+        select_len = None
         if " " in dataset_id:
             dataset_id, select_len = dataset_id.split(" ")
         dataset = load_dataset(dataset_id, split="train", num_proc=8)
