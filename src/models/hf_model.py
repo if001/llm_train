@@ -8,6 +8,12 @@ from models.few_attention_model import (
     FewAttentionModelForCausalLM,
     FewAttentionConfig
 )
+from models.conv_attn import (
+    PyramidPhi3Config,
+    PyramidPhi3ForCausalLM
+)
+from models.residual_diff import DiffUpscalePhi3ForCausalLM
+
 from models.qwen2_fixed_layer import get_qwen
 
 class Phi3(Phi3ForCausalLM):
@@ -33,5 +39,9 @@ def get_hf_models(config):
         return get_qwen(model_name)
     if "qwen2_0.5b_24_moe" in model_name:
         return get_qwen(model_name)
+    if "residual-tiny" in model_name:
+        return DiffUpscalePhi3ForCausalLM(Phi3Config(**config))
+    if "conv-tiny" in model_name:
+        return PyramidPhi3ForCausalLM(PyramidPhi3Config(**config))
     else:
         raise ValueError("not impl hf models: ", model_name)
