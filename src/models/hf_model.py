@@ -13,6 +13,11 @@ from models.conv_attn import (
     PyramidPhi3ForCausalLM
 )
 from models.residual_diff import DiffUpscalePhi3ForCausalLM
+from models.residual_diff_v2 import (
+    DiffUpscalePhi3ForCausalLMV2,
+    DiffUpscalePhi3ForCausalLMV3
+)
+
 
 from models.qwen2_fixed_layer import get_qwen
 
@@ -41,7 +46,12 @@ def get_hf_models(config):
         return get_qwen(model_name)
     if "residual-tiny" in model_name:
         return DiffUpscalePhi3ForCausalLM(Phi3Config(**config))
+    if "residual-tiny-v2" in model_name:
+        return DiffUpscalePhi3ForCausalLMV2(PyramidPhi3Config(**config))
+    if "residual-tiny-v3" in model_name:
+        return DiffUpscalePhi3ForCausalLMV2(PyramidPhi3Config(**config))    
     if "conv-tiny" in model_name:
         return PyramidPhi3ForCausalLM(PyramidPhi3Config(**config))
     else:
         raise ValueError("not impl hf models: ", model_name)
+
