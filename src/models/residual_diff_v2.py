@@ -17,7 +17,8 @@ from models.phi3 import (
     Phi3PreTrainedModel,
     Phi3RMSNorm,
     Phi3MLP,
-    Phi3SdpaAttention,
+    # Phi3SdpaAttention,
+    Phi3Attention
     Phi3RotaryEmbedding,
 )
 
@@ -98,7 +99,8 @@ class Phi3SelfBlock(nn.Module):
         self.config = config
         self.layer_idx = layer_idx
         self.in_norm = Phi3RMSNorm(config.hidden_size, eps=config.rms_norm_eps)
-        self.attn = Phi3SdpaAttention(config, layer_idx=layer_idx)
+        # self.attn = Phi3SdpaAttention(config, layer_idx=layer_idx)
+        self.attn = Phi3Attention(config, layer_idx=layer_idx)
         self.dropout_attn = nn.Dropout(config.resid_pdrop)
         self.ff_norm = Phi3RMSNorm(config.hidden_size, eps=config.rms_norm_eps)
         self.mlp = Phi3MLP(config)
