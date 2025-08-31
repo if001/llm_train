@@ -4,14 +4,23 @@ import torch
 import torch.nn.functional as F
 from torch import nn
 
-from transformers.models.phi3.configuration_phi3 import Phi3Config
-from transformers.models.phi3.modeling_phi3 import (
+# from transformers.models.phi3.configuration_phi3 import Phi3Config
+# from transformers.models.phi3.modeling_phi3 import (
+#     Phi3PreTrainedModel,
+#     Phi3RMSNorm,
+#     Phi3MLP,
+#     Phi3SdpaAttention,
+#     Phi3RotaryEmbedding,
+# )
+from models.phi3_config import Phi3Config
+from models.phi3 import (
     Phi3PreTrainedModel,
     Phi3RMSNorm,
     Phi3MLP,
     Phi3SdpaAttention,
     Phi3RotaryEmbedding,
 )
+
 from transformers.modeling_attn_mask_utils import _prepare_4d_causal_attention_mask
 from transformers.modeling_outputs import BaseModelOutput, CausalLMOutputWithPast
 from transformers.generation.utils import GenerationMixin

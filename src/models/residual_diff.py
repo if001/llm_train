@@ -2,7 +2,7 @@
 「差分→Attn→Dense を前半層で繰り返し、後半層は“Denseでのアップスケール(=長さ+1)”→Attn→Dense を繰り返して最終的に元の seq_len に戻す」アーキテクチャ
 """
 
-Pfrom typing import Optional, Tuple, List
+from typing import Optional, Tuple, List
 import torch
 from torch import nn
 
@@ -10,14 +10,23 @@ from transformers.modeling_attn_mask_utils import _prepare_4d_causal_attention_m
 from transformers.modeling_outputs import CausalLMOutputWithPast
 from transformers.generation.utils import GenerationMixin
 
-from transformers.models.phi3.configuration_phi3 import Phi3Config
-from transformers.models.phi3.modeling_phi3 import (
+# from transformers.models.phi3.configuration_phi3 import Phi3Config
+# from transformers.models.phi3.modeling_phi3 import (
+#     Phi3PreTrainedModel,
+#     Phi3RotaryEmbedding,
+#     Phi3RMSNorm,
+#     Phi3SdpaAttention,   # 既定の SDPA 注意
+#     Phi3MLP,
+# )
+from models.phi3_config import Phi3Config
+from models.phi3 import (
     Phi3PreTrainedModel,
-    Phi3RotaryEmbedding,
     Phi3RMSNorm,
-    Phi3SdpaAttention,   # 既定の SDPA 注意
     Phi3MLP,
+    Phi3SdpaAttention,
+    Phi3RotaryEmbedding,
 )
+
 
 # ---------- 長さ変換用の前処理 ----------
 
