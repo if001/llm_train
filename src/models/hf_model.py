@@ -13,11 +13,11 @@ from models.conv_attn import (
     PyramidPhi3ForCausalLM
 )
 from models.residual_diff import (
-    ResidualNetConfig
+    ResidualNetConfig,
     ResidualNetForCausalLM,
 )
 from models.residual_diff_v2 import (
-    ResidualNetV2Config
+    ResidualNetV2Config,
     ResidualNetV2ForCausalLM,
     ResidualNetV3ForCausalLM,
 )

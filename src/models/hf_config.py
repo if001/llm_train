@@ -281,7 +281,7 @@ residual_diff = [
         vocab_size=50257,  ## llm-jp
         hidden_size=128,
         intermediate_size=64,
-        num_hidden_layers=3,
+        num_hidden_layers=4,
         num_attention_heads=4,
         num_key_value_heads=None,
         resid_pdrop=0.0,
@@ -302,7 +302,7 @@ residual_diff = [
         sliding_window=None,
     ),
     dict(
-        name="residual-tiny-v2",
+        name="residual-v2-tiny",
         vocab_size=50257,  ## llm-jp
         hidden_size=128,
         intermediate_size=64,
@@ -327,7 +327,7 @@ residual_diff = [
         sliding_window=None,
     ),
     dict(
-        name="residual-tiny-v3",
+        name="residual-v3-tiny",
         vocab_size=50257,  ## llm-jp
         hidden_size=128,
         intermediate_size=64,
