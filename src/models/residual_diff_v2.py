@@ -9,7 +9,8 @@ from torch import nn
 #     Phi3PreTrainedModel,
 #     Phi3RMSNorm,
 #     Phi3MLP,
-#     Phi3SdpaAttention,
+#     Phi3Attention,
+#     # Phi3SdpaAttention,
 #     Phi3RotaryEmbedding,
 # )
 from models.phi3_config import Phi3Config
@@ -25,6 +26,12 @@ from models.phi3 import (
 from transformers.modeling_attn_mask_utils import _prepare_4d_causal_attention_mask
 from transformers.modeling_outputs import BaseModelOutput, CausalLMOutputWithPast
 from transformers.generation.utils import GenerationMixin
+
+
+class ResidualNetV2Config(Phi3Config):
+    model_type = "ResidualNetV2Config"
+    def __init__(self, **kwargs):
+        super().__init__(**kwargs)
 
 
 # ==============
@@ -94,7 +101,7 @@ class Phi3SelfBlock(nn.Module):
     """
     PreNorm -> Self-Attn(SDPA+RoPE) -> resid -> PreNorm -> MLP -> resid
     """
-    def __init__(self, config: Phi3Config, layer_idx: int, rotary_emb: Phi3RotaryEmbedding):
+    def __init__(self, config: ResidualNetV2Config, layer_idx: int, rotary_emb: Phi3RotaryEmbedding):
         super().__init__()
         self.config = config
         self.layer_idx = layer_idx
@@ -155,7 +162,7 @@ class SimpleCrossAttention(nn.Module):
     - 既定: RoPE 適用なし（decoder-encoder cross は相対位置の意味付けが曖昧なため）。
       use_rope_in_cross_attn=True で RoPE を適用可能。
     """
-    def __init__(self, config: Phi3Config, rotary_emb: Phi3RotaryEmbedding, use_rope_in_cross_attn: bool = False):
+    def __init__(self, config: ResidualNetV2Config, rotary_emb: Phi3RotaryEmbedding, use_rope_in_cross_attn: bool = False):
         super().__init__()
         self.config = config
         self.rotary_emb = rotary_emb
@@ -242,14 +249,14 @@ class SimpleCrossAttention(nn.Module):
 # v2: 3本の枝を「各3層」通してから、0階に Cross-Attn(←1階) → Cross-Attn(←2階)
 # ==============
 
-class DiffUpscalePhi3ModelV2(Phi3PreTrainedModel):
+class ResidualNetV2Model(Phi3PreTrainedModel):
     """
     1) embedding -> 0/1/2階差分 3枝
     2) 各枝: [SelfBlock] x 3 （同一枝内で3層）
     3) x0 に CrossAttn(x1_final) → residual、続けて CrossAttn(x2_final) → residual
     出力は x0（原系列長 L）
     """
-    def __init__(self, config: Phi3Config, use_rope_in_cross_attn: bool = False):
+    def __init__(self, config: ResidualNetV2Config, use_rope_in_cross_attn: bool = False):
         super().__init__(config)
         self.padding_idx = config.pad_token_id
         self.vocab_size = config.vocab_size
@@ -323,12 +330,12 @@ class DiffUpscalePhi3ModelV2(Phi3PreTrainedModel):
         )
 
 
-class DiffUpscalePhi3ForCausalLMV2(Phi3PreTrainedModel, GenerationMixin):
+class ResidualNetV2ForCausalLM(Phi3PreTrainedModel, GenerationMixin):
     _tied_weights_keys = ["lm_head.weight"]
 
-    def __init__(self, config: Phi3Config, use_rope_in_cross_attn: bool = False):
+    def __init__(self, config: ResidualNetV2Config, use_rope_in_cross_attn: bool = False):
         super().__init__(config)
-        self.model = DiffUpscalePhi3ModelV2(config, use_rope_in_cross_attn=use_rope_in_cross_attn)
+        self.model = ResidualNetModelV2(config, use_rope_in_cross_attn=use_rope_in_cross_attn)
         self.vocab_size = config.vocab_size
         self.lm_head = nn.Linear(config.hidden_size, config.vocab_size, bias=False)
         # weight tying
@@ -373,12 +380,12 @@ class DiffUpscalePhi3ForCausalLMV2(Phi3PreTrainedModel, GenerationMixin):
 # v3: 「各枝1層 + x0<-x1 Cross + x0<-x2 Cross」を1ブロックとして **3回** 反復
 # ==============
 
-class DiffUpscalePhi3ModelV3(Phi3PreTrainedModel):
+class ResidualNetV3Model(Phi3PreTrainedModel):
     """
     1 block = { 3枝: SelfBlock各1層 → x0<-x1 Cross → x0<-x2 Cross }
     これを 3 回繰り返す（早期融合 + 反復洗練）
     """
-    def __init__(self, config: Phi3Config, use_rope_in_cross_attn: bool = False):
+    def __init__(self, config: ResidualNetV2Config, use_rope_in_cross_attn: bool = False):
         super().__init__(config)
         self.padding_idx = config.pad_token_id
         self.vocab_size = config.vocab_size
@@ -456,12 +463,12 @@ class DiffUpscalePhi3ModelV3(Phi3PreTrainedModel):
         )
 
 
-class DiffUpscalePhi3ForCausalLMV3(Phi3PreTrainedModel, GenerationMixin):
+class ResidualNetV3ForCausalLM(Phi3PreTrainedModel, GenerationMixin):
     _tied_weights_keys = ["lm_head.weight"]
 
-    def __init__(self, config: Phi3Config, use_rope_in_cross_attn: bool = False):
+    def __init__(self, config: ResidualNetV2Config, use_rope_in_cross_attn: bool = False):
         super().__init__(config)
-        self.model = DiffUpscalePhi3ModelV3(config, use_rope_in_cross_attn=use_rope_in_cross_attn)
+        self.model = ResidualNetV3Model(config, use_rope_in_cross_attn=use_rope_in_cross_attn)
         self.vocab_size = config.vocab_size
         self.lm_head = nn.Linear(config.hidden_size, config.vocab_size, bias=False)
         self.lm_head.weight = self.model.embed_tokens.weight

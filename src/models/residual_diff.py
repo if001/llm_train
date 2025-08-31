@@ -15,7 +15,8 @@ from transformers.generation.utils import GenerationMixin
 #     Phi3PreTrainedModel,
 #     Phi3RotaryEmbedding,
 #     Phi3RMSNorm,
-#     Phi3SdpaAttention,   # 既定の SDPA 注意
+#     Phi3Attention,
+#     # Phi3SdpaAttention,   # 既定の SDPA 注意
 #     Phi3MLP,
 # )
 from models.phi3_config import Phi3Config
@@ -28,6 +29,10 @@ from models.phi3 import (
     Phi3RotaryEmbedding,
 )
 
+class ResidualNetConfig(Phi3Config):
+    model_type = "ResidualNetConfig"
+    def __init__(self, **kwargs):
+        super().__init__(**kwargs)
 
 # ---------- 長さ変換用の前処理 ----------
 
@@ -97,7 +102,7 @@ class ResidualDiffLayer(nn.Module):
     - RoPE は Phi-3 と同様に Attention 内で適用
     - 各層で position_ids を 0..len-1 に張り直す
     """
-    def __init__(self, config: Phi3Config, layer_idx: int, rotary_emb: Phi3RotaryEmbedding):
+    def __init__(self, config: ResidualNetConfig, layer_idx: int, rotary_emb: Phi3RotaryEmbedding):
         super().__init__()
         self.config = config
         self.layer_idx = layer_idx
@@ -159,7 +164,7 @@ class IntegrateUpscaleLayer(nn.Module):
     """
     (積分で L+1) -> Attn -> MLP
     """
-    def __init__(self, config: Phi3Config, layer_idx: int, rotary_emb: Phi3RotaryEmbedding):
+    def __init__(self, config: ResidualNetConfig, layer_idx: int, rotary_emb: Phi3RotaryEmbedding):
         super().__init__()
         self.config = config
         self.layer_idx = layer_idx
@@ -219,12 +224,12 @@ class IntegrateUpscaleLayer(nn.Module):
 
 # ---------- モデル本体（Phi3PreTrainedModel を継承） ----------
 
-class DiffUpscalePhi3Model(Phi3PreTrainedModel):
+class ResidualNetModel(Phi3PreTrainedModel):
     """
     前半: ResidualDiffLayer × (N/2) で系列長を縮約
     後半: IntegrateUpscaleLayer × (N/2) で系列長を復元
     """
-    def __init__(self, config: Phi3Config):
+    def __init__(self, config: ResidualNetConfig):
         super().__init__(config)
         assert config.num_hidden_layers % 2 == 0, "num_hidden_layers は偶数にしてください。"
 
@@ -321,14 +326,14 @@ class DiffUpscalePhi3Model(Phi3PreTrainedModel):
 
 # ---------- CausalLM ヘッド（Phi3PreTrainedModel + GenerationMixin） ----------
 
-class DiffUpscalePhi3ForCausalLM(Phi3PreTrainedModel, GenerationMixin):
+class ResidualNetForCausalLM(Phi3PreTrainedModel, GenerationMixin):
     _tied_weights_keys = ["lm_head.weight"]
     _tp_plan = {"lm_head": "colwise_rep"}
     _pp_plan = {"lm_head": (["hidden_states"], ["logits"])}
 
-    def __init__(self, config: Phi3Config):
+    def __init__(self, config: ResidualNetConfig):
         super().__init__(config)
-        self.model = DiffUpscalePhi3Model(config)
+        self.model = ResidualNetModel(config)
         self.vocab_size = config.vocab_size
         self.lm_head = nn.Linear(config.hidden_size, config.vocab_size, bias=False)
 

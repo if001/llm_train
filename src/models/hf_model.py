@@ -12,12 +12,15 @@ from models.conv_attn import (
     PyramidPhi3Config,
     PyramidPhi3ForCausalLM
 )
-from models.residual_diff import DiffUpscalePhi3ForCausalLM
-from models.residual_diff_v2 import (
-    DiffUpscalePhi3ForCausalLMV2,
-    DiffUpscalePhi3ForCausalLMV3
+from models.residual_diff import (
+    ResidualNetConfig
+    ResidualNetForCausalLM,
 )
-
+from models.residual_diff_v2 import (
+    ResidualNetV2Config
+    ResidualNetV2ForCausalLM,
+    ResidualNetV3ForCausalLM,
+)
 
 from models.qwen2_fixed_layer import get_qwen
 
@@ -45,11 +48,11 @@ def get_hf_models(config):
     if "qwen2_0.5b_24_moe" in model_name:
         return get_qwen(model_name)
     if "residual-tiny" in model_name:
-        return DiffUpscalePhi3ForCausalLM(Phi3Config(**config))
+        return ResidualNetForCausalLM(ResidualNetConfig(**config))
     if "residual-tiny-v2" in model_name:
-        return DiffUpscalePhi3ForCausalLMV2(PyramidPhi3Config(**config))
+        return ResidualNetV2ForCausalLM(ResidualNetV2Config(**config))
     if "residual-tiny-v3" in model_name:
-        return DiffUpscalePhi3ForCausalLMV2(PyramidPhi3Config(**config))    
+        return ResidualNetV3ForCausalLM(ResidualNetV2Config(**config))
     if "conv-tiny" in model_name:
         return PyramidPhi3ForCausalLM(PyramidPhi3Config(**config))
     else:
