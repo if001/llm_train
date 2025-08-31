@@ -18,7 +18,7 @@ from models.phi3 import (
     Phi3RMSNorm,
     Phi3MLP,
     # Phi3SdpaAttention,
-    Phi3Attention
+    Phi3Attention,
     Phi3RotaryEmbedding,
 )
 
@@ -125,12 +125,13 @@ class Phi3SelfBlock(nn.Module):
         B, L, _ = x.shape
         pos = torch.arange(L, device=x.device).unsqueeze(0).expand(B, -1)
         attn_mask = self._prepare_4d_mask(mask2d, B, L, x)
-
-        attn_out, attn_weights, _ = self.attn(
+        position_embeddings = self.rotary_emb(hidden_states, pos)
+        
+        attn_out, attn_weights = self.attn(
             hidden_states=x,
             attention_mask=attn_mask,
             position_ids=pos,
-            rotary_emb=self.rotary_emb,
+            position_embeddings=position_embeddings,
             past_key_value=None,
             output_attentions=output_attentions,
             use_cache=False,

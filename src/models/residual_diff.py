@@ -24,7 +24,7 @@ from models.phi3 import (
     Phi3RMSNorm,
     Phi3MLP,
     # Phi3SdpaAttention,
-    Phi3Attention
+    Phi3Attention,
     Phi3RotaryEmbedding,
 )
 
@@ -135,14 +135,15 @@ class ResidualDiffLayer(nn.Module):
         # position_ids を再生成（0..seqlen-1）
         device = x.device
         pos_ids = torch.arange(seqlen, device=device).unsqueeze(0).expand(bsz, -1)
-
+        position_embeddings = self.rotary_emb(hidden_states, pos_ids)
+        
         attn_mask_4d = self._to_4d_mask(mask2d, bsz, seqlen, x)
 
-        attn_out, attn_weights, _ = self.attn(
+        attn_out, attn_weights = self.attn(
             hidden_states=x,
             attention_mask=attn_mask_4d,
             position_ids=pos_ids,
-            rotary_emb=self.rotary_emb,
+            position_embeddings=position_embeddings,
             past_key_value=None,
             output_attentions=output_attentions,
             use_cache=False,
@@ -196,14 +197,15 @@ class IntegrateUpscaleLayer(nn.Module):
         # position_ids を再生成（0..seqlen-1）
         device = x.device
         pos_ids = torch.arange(seqlen, device=device).unsqueeze(0).expand(bsz, -1)
+        position_embeddings = self.rotary_emb(hidden_states, pos_ids)
 
         attn_mask_4d = self._to_4d_mask(mask2d, bsz, seqlen, x)
 
-        attn_out, attn_weights, _ = self.attn(
+        attn_out, attn_weights = self.attn(
             hidden_states=x,
             attention_mask=attn_mask_4d,
             position_ids=pos_ids,
-            rotary_emb=self.rotary_emb,
+            position_embeddings=position_embeddings,
             past_key_value=None,
             output_attentions=output_attentions,
             use_cache=False,
