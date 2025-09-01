@@ -335,7 +335,7 @@ class ResidualNetV2ForCausalLM(Phi3PreTrainedModel, GenerationMixin):
 
     def __init__(self, config: ResidualNetV2Config, use_rope_in_cross_attn: bool = False):
         super().__init__(config)
-        self.model = ResidualNetModelV2(config, use_rope_in_cross_attn=use_rope_in_cross_attn)
+        self.model = ResidualNetV2Model(config, use_rope_in_cross_attn=use_rope_in_cross_attn)
         self.vocab_size = config.vocab_size
         self.lm_head = nn.Linear(config.hidden_size, config.vocab_size, bias=False)
         # weight tying
