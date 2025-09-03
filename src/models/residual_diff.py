@@ -33,6 +33,7 @@ class ResidualNetConfig(Phi3Config):
     model_type = "ResidualNetConfig"
     def __init__(self, **kwargs):
         super().__init__(**kwargs)
+        self.config.tie_word_embeddings = True
 
 # ---------- 長さ変換用の前処理 ----------
 
@@ -133,10 +134,16 @@ class ResidualDiffLayer(nn.Module):
         output_attentions: bool = False,
     ) -> Tuple[torch.Tensor, Optional[torch.Tensor], Optional[torch.Tensor]]:
         x = self.input_norm(hidden_states)
-        # L -> L-1
-        x, mask2d = self.pre(x, attention_mask_2d)
-        bsz, seqlen, _ = x.shape
 
+        if x.size(1) == 1:
+            # 前処理を通さない（長さを減らさない）
+            bsz, seqlen, _ = x.shape
+            mask2d = attention_mask_2d  # そのまま
+        else:
+            # 通常: L -> L-1
+            x, mask2d = self.pre(x, attention_mask_2d)
+            bsz, seqlen, _ = x.shape
+            
         # position_ids を再生成（0..seqlen-1）
         device = x.device
         pos_ids = torch.arange(seqlen, device=device).unsqueeze(0).expand(bsz, -1)
@@ -195,10 +202,15 @@ class IntegrateUpscaleLayer(nn.Module):
         output_attentions: bool = False,
     ) -> Tuple[torch.Tensor, Optional[torch.Tensor], Optional[torch.Tensor]]:
         x = self.input_norm(hidden_states)
-        # L -> L+1
-        x, mask2d = self.pre(x, attention_mask_2d)
-        bsz, seqlen, _ = x.shape
 
+        if x.size(1) == 1:
+            bsz, seqlen, _ = x.shape
+            mask2d = attention_mask_2d  # そのまま
+        else:
+            # 通常: L -> L+1
+            x, mask2d = self.pre(x, attention_mask_2d)
+            bsz, seqlen, _ = x.shape
+            
         # position_ids を再生成（0..seqlen-1）
         device = x.device
         pos_ids = torch.arange(seqlen, device=device).unsqueeze(0).expand(bsz, -1)
@@ -229,6 +241,8 @@ class ResidualNetModel(Phi3PreTrainedModel):
     前半: ResidualDiffLayer × (N/2) で系列長を縮約
     後半: IntegrateUpscaleLayer × (N/2) で系列長を復元
     """
+    config_class = ResidualNetConfig
+
     def __init__(self, config: ResidualNetConfig):
         super().__init__(config)
         assert config.num_hidden_layers % 2 == 0, "num_hidden_layers は偶数にしてください。"
@@ -264,6 +278,7 @@ class ResidualNetModel(Phi3PreTrainedModel):
         output_hidden_states: Optional[bool] = None,
         return_dict: Optional[bool] = None,
         use_cache: Optional[bool] = None,  # 未対応（強制 False）
+        **kwargs,
     ):
         output_attentions = output_attentions if output_attentions is not None else False
         output_hidden_states = output_hidden_states if output_hidden_states is not None else False
@@ -327,6 +342,7 @@ class ResidualNetModel(Phi3PreTrainedModel):
 # ---------- CausalLM ヘッド（Phi3PreTrainedModel + GenerationMixin） ----------
 
 class ResidualNetForCausalLM(Phi3PreTrainedModel, GenerationMixin):
+    config_class = ResidualNetConfig
     _tied_weights_keys = ["lm_head.weight"]
     _tp_plan = {"lm_head": "colwise_rep"}
     _pp_plan = {"lm_head": (["hidden_states"], ["logits"])}
@@ -338,11 +354,29 @@ class ResidualNetForCausalLM(Phi3PreTrainedModel, GenerationMixin):
         self.lm_head = nn.Linear(config.hidden_size, config.vocab_size, bias=False)
 
         # weight tying
-        self.lm_head.weight = self.model.embed_tokens.weight
+        # self.lm_head.weight = self.model.embed_tokens.weight
 
         # Initialize weights and apply final processing
         self.post_init()
 
+    def get_input_embeddings(self):
+        return self.model.embed_tokens
+
+    def set_input_embeddings(self, value):
+        self.model.embed_tokens = value
+
+    def get_output_embeddings(self):
+        return self.lm_head
+
+    def set_output_embeddings(self, new_embeddings):
+        self.lm_head = new_embeddings
+
+    def set_decoder(self, decoder):
+        self.model = decoder
+
+    def get_decoder(self):
+        return self.model
+    
     def forward(
         self,
         input_ids: Optional[torch.LongTensor] = None,
@@ -355,6 +389,7 @@ class ResidualNetForCausalLM(Phi3PreTrainedModel, GenerationMixin):
         return_dict: Optional[bool] = None,
         use_cache: Optional[bool] = None,  # 未対応
         past_key_values: Optional[List[torch.Tensor]] = None,  # 未対応
+        **kwargs,
     ) -> CausalLMOutputWithPast:
         return_dict = True if return_dict is None else return_dict
 
@@ -367,6 +402,7 @@ class ResidualNetForCausalLM(Phi3PreTrainedModel, GenerationMixin):
             output_hidden_states=output_hidden_states,
             return_dict=True,
             use_cache=False,
+            **kwargs,
         )
         hidden_states = model_out["last_hidden_state"]  # (B, L, H)
         logits = self.lm_head(hidden_states).float()
