@@ -111,8 +111,8 @@ def make_dataset(dataset_ids, shuffle_each_ds=False):
     # print(datasets)
     for dataset_id in dataset_ids:
         select_len = None
-        if " " in dataset_id:
-            dataset_id, select_len = dataset_id.split(" ")
+        if "#" in dataset_id:
+            dataset_id, select_len = dataset_id.split("#")
             select_len = int(select_len)
         dataset = load_dataset(dataset_id, split="train", num_proc=8)
         if select_len:
