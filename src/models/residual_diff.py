@@ -33,7 +33,7 @@ class ResidualNetConfig(Phi3Config):
     model_type = "ResidualNetConfig"
     def __init__(self, **kwargs):
         super().__init__(**kwargs)
-        self.config.tie_word_embeddings = True
+        # self.tie_word_embeddings = True
 
 # ---------- 長さ変換用の前処理 ----------
 
