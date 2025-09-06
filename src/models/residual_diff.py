@@ -8,7 +8,7 @@ from torch import nn
 
 from transformers.modeling_attn_mask_utils import _prepare_4d_causal_attention_mask
 from transformers.modeling_outputs import CausalLMOutputWithPast
-from transformers.generation.utils import GenerationMixin
+from transformers.generation.utils import GenerationMixin, GenerateDecoderOnlyOutput
 
 # from transformers.models.phi3.configuration_phi3 import Phi3Config
 # from transformers.models.phi3.modeling_phi3 import (
@@ -29,8 +29,10 @@ from models.phi3 import (
     Phi3RotaryEmbedding,
 )
 
+
 class ResidualNetConfig(Phi3Config):
     model_type = "ResidualNetConfig"
+
     def __init__(self, **kwargs):
         super().__init__(**kwargs)
         # self.tie_word_embeddings = True
@@ -39,6 +41,7 @@ class ResidualNetConfig(Phi3Config):
 # ---------- 長さ変換用の前処理 ----------
 class DiffPreprocessor(nn.Module):
     """一次差分: (B, L, H) -> (B, L-1, H) と 2D mask の AND 縮約"""
+
     def forward(
         self,
         hidden_states: torch.Tensor,
@@ -50,7 +53,9 @@ class DiffPreprocessor(nn.Module):
         diff = x1 - x0  # (B, L-1, H)
 
         if attention_mask_2d is not None:
-            m = (attention_mask_2d[:, 1:].bool() & attention_mask_2d[:, :-1].bool()).to(attention_mask_2d.dtype)
+            m = (attention_mask_2d[:, 1:].bool() & attention_mask_2d[:, :-1].bool()).to(
+                attention_mask_2d.dtype
+            )
         else:
             m = None
         return diff, m
@@ -62,6 +67,7 @@ class IntegratePreprocessor(nn.Module):
       1) seed y0 = MLP(mean_pool(z))
       2) y = cumsum([y0, z], dim=1)
     """
+
     def __init__(self, hidden_size: int):
         super().__init__()
         self.seed_mlp = nn.Sequential(
@@ -78,8 +84,12 @@ class IntegratePreprocessor(nn.Module):
         # hidden_states: (B, m, H)
         if attention_mask_2d is not None:
             denom = attention_mask_2d.sum(dim=1, keepdim=True).clamp_min(1)
-            pooled = (hidden_states * attention_mask_2d.unsqueeze(-1)).sum(dim=1) / denom  # (B, H)
-            batch_valid = (attention_mask_2d.sum(dim=1) > 0).to(attention_mask_2d.dtype)  # (B,)
+            pooled = (hidden_states * attention_mask_2d.unsqueeze(-1)).sum(
+                dim=1
+            ) / denom  # (B, H)
+            batch_valid = (attention_mask_2d.sum(dim=1) > 0).to(
+                attention_mask_2d.dtype
+            )  # (B,)
         else:
             pooled = hidden_states.mean(dim=1)
             batch_valid = None
@@ -97,13 +107,17 @@ class IntegratePreprocessor(nn.Module):
 
 # ---------- レイヤーブロック（Phi3 部品で構成） ----------
 
+
 class ResidualDiffLayer(nn.Module):
     """
     (差分で L-1) -> Attn -> MLP
     - RoPE は Phi-3 と同様に Attention 内で適用
     - 各層で position_ids を 0..len-1 に張り直す
     """
-    def __init__(self, config: ResidualNetConfig, layer_idx: int, rotary_emb: Phi3RotaryEmbedding):
+
+    def __init__(
+        self, config: ResidualNetConfig, layer_idx: int, rotary_emb: Phi3RotaryEmbedding
+    ):
         super().__init__()
         self.config = config
         self.layer_idx = layer_idx
@@ -118,19 +132,28 @@ class ResidualDiffLayer(nn.Module):
         self.rotary_emb = rotary_emb  # 共有 RoPE インスタンス
 
     def _to_4d_mask(
-            self, mask2d: Optional[torch.Tensor], bsz: int, seqlen: int, hidden_states: torch.Tensor,past_kv_len: int
+        self,
+        mask2d: Optional[torch.Tensor],
+        bsz: int,
+        seqlen: int,
+        hidden_states: torch.Tensor,
+        past_kv_len: int,
     ) -> Optional[torch.Tensor]:
         if mask2d is None:
             return None
         return _prepare_4d_causal_attention_mask(
-            mask2d, (bsz, seqlen), hidden_states, past_key_values_length=past_kv_len, sliding_window=self.config.sliding_window
+            mask2d,
+            (bsz, seqlen),
+            hidden_states,
+            past_key_values_length=past_kv_len,
+            sliding_window=self.config.sliding_window,
         )
 
     def forward(
         self,
-        hidden_states: torch.Tensor,            # (B, L, H)
+        hidden_states: torch.Tensor,  # (B, L, H)
         attention_mask_2d: Optional[torch.Tensor],  # (B, L)
-        position_ids: Optional[torch.LongTensor],   # (B, L)
+        position_ids: Optional[torch.LongTensor],  # (B, L)
         output_attentions: bool = False,
         past_key_value: Optional[Tuple[torch.Tensor, torch.Tensor]] = None,
         use_cache: bool = False,
@@ -141,11 +164,11 @@ class ResidualDiffLayer(nn.Module):
         if x.size(1) == 1:
             # bsz, seqlen, _ = x.shape
             # mask2d = attention_mask_2d
-            raise ValueError('seq len must set > 1')
+            raise ValueError("seq len must set > 1")
         else:
             x, mask2d = self.pre(x, attention_mask_2d)  # L→L-1
             bsz, seqlen, _ = x.shape
-            
+
         device = x.device
 
         if cache_position is not None:
@@ -154,14 +177,24 @@ class ResidualDiffLayer(nn.Module):
             # 各バッチ同一想定（現実装は batch=1 前提）。batch>1でも一貫させるなら gather 等で個別生成も可
             end_val = int(end_pos[0].item())
             start_val = end_val - (seqlen - 1)
-            pos_ids = torch.arange(start_val, end_val + 1, device=device).unsqueeze(0).expand(bsz, -1)  # [B,seqlen]
+            pos_ids = (
+                torch.arange(start_val, end_val + 1, device=device)
+                .unsqueeze(0)
+                .expand(bsz, -1)
+            )  # [B,seqlen]
         else:
             # 生成外（学習時など）。past_kv_len を起点に絶対位置を張る
             past_kv_len = 0
-            pos_ids = torch.arange(past_kv_len, past_kv_len + seqlen, device=device).unsqueeze(0).expand(bsz, -1)
-        
-        position_embeddings = self.rotary_emb(hidden_states, pos_ids)        
-        past_kv_len = int(cache_position[0].item()) if (cache_position is not None) else 0
+            pos_ids = (
+                torch.arange(past_kv_len, past_kv_len + seqlen, device=device)
+                .unsqueeze(0)
+                .expand(bsz, -1)
+            )
+
+        position_embeddings = self.rotary_emb(hidden_states, pos_ids)
+        past_kv_len = (
+            int(cache_position[0].item()) if (cache_position is not None) else 0
+        )
         attn_mask_4d = self._to_4d_mask(mask2d, bsz, seqlen, x, past_kv_len)
 
         attn_out, attn_weights = self.attn(
@@ -184,7 +217,10 @@ class IntegrateUpscaleLayer(nn.Module):
     """
     (積分で L+1) -> Attn -> MLP
     """
-    def __init__(self, config: ResidualNetConfig, layer_idx: int, rotary_emb: Phi3RotaryEmbedding):
+
+    def __init__(
+        self, config: ResidualNetConfig, layer_idx: int, rotary_emb: Phi3RotaryEmbedding
+    ):
         super().__init__()
         self.config = config
         self.layer_idx = layer_idx
@@ -199,19 +235,28 @@ class IntegrateUpscaleLayer(nn.Module):
         self.rotary_emb = rotary_emb
 
     def _to_4d_mask(
-            self, mask2d: Optional[torch.Tensor], bsz: int, seqlen: int, hidden_states: torch.Tensor, past_kv_len: int
+        self,
+        mask2d: Optional[torch.Tensor],
+        bsz: int,
+        seqlen: int,
+        hidden_states: torch.Tensor,
+        past_kv_len: int,
     ) -> Optional[torch.Tensor]:
         if mask2d is None:
             return None
         return _prepare_4d_causal_attention_mask(
-            mask2d, (bsz, seqlen), hidden_states, past_key_values_length=past_kv_len, sliding_window=self.config.sliding_window
+            mask2d,
+            (bsz, seqlen),
+            hidden_states,
+            past_key_values_length=past_kv_len,
+            sliding_window=self.config.sliding_window,
         )
 
     def forward(
         self,
-        hidden_states: torch.Tensor,            # (B, L, H)
+        hidden_states: torch.Tensor,  # (B, L, H)
         attention_mask_2d: Optional[torch.Tensor],  # (B, L)
-        position_ids: Optional[torch.LongTensor],   # (B, L)
+        position_ids: Optional[torch.LongTensor],  # (B, L)
         output_attentions: bool = False,
         past_key_value: Optional[Tuple[torch.Tensor, torch.Tensor]] = None,
         cache_position: Optional[torch.LongTensor] = None,
@@ -222,24 +267,34 @@ class IntegrateUpscaleLayer(nn.Module):
         if x.size(1) == 1:
             # bsz, seqlen, _ = x.shape
             # mask2d = attention_mask_2d
-            raise ValueError('seq len must set > 1')
+            raise ValueError("seq len must set > 1")
         else:
             x, mask2d = self.pre(x, attention_mask_2d)  # L→L+1
             bsz, seqlen, _ = x.shape
-        
+
         device = x.device
         if cache_position is not None:
             end_pos = cache_position[:, -1]  # [B]
             end_val = int(end_pos[0].item())
             start_val = end_val - (seqlen - 1)
-            pos_ids = torch.arange(start_val, end_val + 1, device=device).unsqueeze(0).expand(bsz, -1)
+            pos_ids = (
+                torch.arange(start_val, end_val + 1, device=device)
+                .unsqueeze(0)
+                .expand(bsz, -1)
+            )
         else:
             past_kv_len = 0
-            pos_ids = torch.arange(past_kv_len, past_kv_len + seqlen, device=device).unsqueeze(0).expand(bsz, -1)
-        
+            pos_ids = (
+                torch.arange(past_kv_len, past_kv_len + seqlen, device=device)
+                .unsqueeze(0)
+                .expand(bsz, -1)
+            )
+
         position_embeddings = self.rotary_emb(hidden_states, pos_ids)
 
-        past_kv_len = int(cache_position[0].item()) if (cache_position is not None) else 0
+        past_kv_len = (
+            int(cache_position[0].item()) if (cache_position is not None) else 0
+        )
         attn_mask_4d = self._to_4d_mask(mask2d, bsz, seqlen, x, past_kv_len)
 
         attn_out, attn_weights = self.attn(
@@ -260,21 +315,27 @@ class IntegrateUpscaleLayer(nn.Module):
 
 # ---------- モデル本体（Phi3PreTrainedModel を継承） ----------
 
+
 class ResidualNetModel(Phi3PreTrainedModel):
     """
     前半: ResidualDiffLayer × (N/2) で系列長を縮約
     後半: IntegrateUpscaleLayer × (N/2) で系列長を復元
     """
+
     config_class = ResidualNetConfig
 
     def __init__(self, config: ResidualNetConfig):
         super().__init__(config)
-        assert config.num_hidden_layers % 2 == 0, "num_hidden_layers は偶数にしてください。"
+        assert (
+            config.num_hidden_layers % 2 == 0
+        ), "num_hidden_layers は偶数にしてください。"
 
         self.padding_idx = config.pad_token_id
         self.vocab_size = config.vocab_size
 
-        self.embed_tokens = nn.Embedding(config.vocab_size, config.hidden_size, self.padding_idx)
+        self.embed_tokens = nn.Embedding(
+            config.vocab_size, config.hidden_size, self.padding_idx
+        )
         self.norm = Phi3RMSNorm(config.hidden_size, eps=config.rms_norm_eps)
         self.rotary_emb = Phi3RotaryEmbedding(config=config)
         self.gradient_checkpointing = False
@@ -282,11 +343,19 @@ class ResidualNetModel(Phi3PreTrainedModel):
         half = config.num_hidden_layers // 2
         # 前半 (down)
         self.down_layers = nn.ModuleList(
-            [ResidualDiffLayer(config, layer_idx=i, rotary_emb=self.rotary_emb) for i in range(half)]
+            [
+                ResidualDiffLayer(config, layer_idx=i, rotary_emb=self.rotary_emb)
+                for i in range(half)
+            ]
         )
         # 後半 (up)
         self.up_layers = nn.ModuleList(
-            [IntegrateUpscaleLayer(config, layer_idx=half + i, rotary_emb=self.rotary_emb) for i in range(half)]
+            [
+                IntegrateUpscaleLayer(
+                    config, layer_idx=half + i, rotary_emb=self.rotary_emb
+                )
+                for i in range(half)
+            ]
         )
 
         # Initialize weights and apply final processing
@@ -303,11 +372,15 @@ class ResidualNetModel(Phi3PreTrainedModel):
         return_dict: Optional[bool] = None,
         use_cache: bool = False,
         past_key_values: Optional[List[torch.Tensor]] = None,  # List[LayerKV] or None
-        cache_position: Optional[torch.LongTensor]=None,
+        cache_position: Optional[torch.LongTensor] = None,
         **kwargs,
     ):
-        output_attentions = output_attentions if output_attentions is not None else False
-        output_hidden_states = output_hidden_states if output_hidden_states is not None else False
+        output_attentions = (
+            output_attentions if output_attentions is not None else False
+        )
+        output_hidden_states = (
+            output_hidden_states if output_hidden_states is not None else False
+        )
         return_dict = True if return_dict is None else return_dict
 
         if input_ids is None and inputs_embeds is None:
@@ -329,7 +402,13 @@ class ResidualNetModel(Phi3PreTrainedModel):
             if output_hidden_states:
                 all_hidden_states.append(hidden_states)
             hidden_states, mask2d, attn = layer(
-                hidden_states, mask2d, position_ids, output_attentions=output_attentions, past_key_value=past_key_value, use_cache=use_cache, cache_position
+                hidden_states,
+                mask2d,
+                position_ids,
+                output_attentions=output_attentions,
+                past_key_value=past_key_values,
+                use_cache=use_cache,
+                cache_position=cache_position,
             )
             if output_attentions:
                 all_attns.append(attn)
@@ -339,14 +418,22 @@ class ResidualNetModel(Phi3PreTrainedModel):
             if output_hidden_states:
                 all_hidden_states.append(hidden_states)
             hidden_states, mask2d, attn = layer(
-                hidden_states, mask2d, position_ids, output_attentions=output_attentions, past_key_value=past_key_value, use_cache=use_cache, cache_position
+                hidden_states,
+                mask2d,
+                position_ids,
+                output_attentions=output_attentions,
+                past_key_value=past_key_values,
+                use_cache=use_cache,
+                cache_position=cache_position,
             )
             if output_attentions:
                 all_attns.append(attn)
 
         # 最終長の整合性（念のため）
         if hidden_states.size(1) != orig_len:
-            raise RuntimeError(f"seq_len が復元されていません: got {hidden_states.size(1)} vs {orig_len}")
+            raise RuntimeError(
+                f"seq_len が復元されていません: got {hidden_states.size(1)} vs {orig_len}"
+            )
 
         hidden_states = self.norm(hidden_states)
 
@@ -366,6 +453,7 @@ class ResidualNetModel(Phi3PreTrainedModel):
 
 
 # ---------- CausalLM ヘッド（Phi3PreTrainedModel + GenerationMixin） ----------
+
 
 class ResidualNetForCausalLM(Phi3PreTrainedModel, GenerationMixin):
     config_class = ResidualNetConfig
@@ -402,7 +490,7 @@ class ResidualNetForCausalLM(Phi3PreTrainedModel, GenerationMixin):
 
     def get_decoder(self):
         return self.model
-    
+
     def forward(
         self,
         input_ids: Optional[torch.LongTensor] = None,
@@ -415,7 +503,7 @@ class ResidualNetForCausalLM(Phi3PreTrainedModel, GenerationMixin):
         return_dict: Optional[bool] = None,
         use_cache: bool = False,
         past_key_values: Optional[List[torch.Tensor]] = None,  # List[LayerKV] or None
-        cache_position: Optional[torch.LongTensor]=None,
+        cache_position: Optional[torch.LongTensor] = None,
         **kwargs,
     ) -> CausalLMOutputWithPast:
         return_dict = True if return_dict is None else return_dict
@@ -442,7 +530,9 @@ class ResidualNetForCausalLM(Phi3PreTrainedModel, GenerationMixin):
             shift_logits = logits[:, :-1, :].contiguous()
             shift_labels = labels[:, 1:].contiguous()
             loss_fct = nn.CrossEntropyLoss()
-            loss = loss_fct(shift_logits.view(-1, self.vocab_size), shift_labels.view(-1))
+            loss = loss_fct(
+                shift_logits.view(-1, self.vocab_size), shift_labels.view(-1)
+            )
 
         if not return_dict:
             return (logits, loss)
@@ -459,13 +549,10 @@ class ResidualNetForCausalLM(Phi3PreTrainedModel, GenerationMixin):
     def base_model(self):
         return self.model
 
-
     @torch.no_grad()
     def generate(self, *args, **kwargs):
-        super().generate(
-            *args,
-            custom_generate=window3_generate,
-            **kwargs)
+        super().generate(*args, custom_generate=window3_generate, **kwargs)
+
 
 def window3_generate(
     model,
@@ -491,7 +578,9 @@ def window3_generate(
     """
     device = input_ids.device
     batch_size = input_ids.size(0)
-    assert batch_size == 1, "window3_decode はまず単一バッチで運用してください（拡張は容易）"
+    assert (
+        batch_size == 1
+    ), "window3_decode はまず単一バッチで運用してください（拡張は容易）"
 
     # 必須前提：use_cache=True（generate() がすでに設定）
     model_kwargs["use_cache"] = True
@@ -500,7 +589,9 @@ def window3_generate(
     cache = model_kwargs.get("past_key_values", None)
     if cache is None:
         # HFの既定では _prepare_cache_for_generation がここを必ず埋めます
-        raise RuntimeError("past_key_values (Cache) が見つかりません。generate() の step 7 で設定されている必要があります。")
+        raise RuntimeError(
+            "past_key_values (Cache) が見つかりません。generate() の step 7 で設定されている必要があります。"
+        )
 
     # ---- 1) prefill: 通常の全文脈で i を生成 ----
     # cache_position は [0..L0-1]
@@ -524,7 +615,7 @@ def window3_generate(
         streamer.put(next_tokens.cpu())
 
     sequences = torch.cat([input_ids, next_tokens], dim=1)  # 0..i
-    cur_len = sequences.size(1)
+    # cur_len = sequences.size(1)
 
     # ---- 2) 以降: 毎回 3 トークン窓で前進、KV は “2つ前まで” を可視に ----
     # stopping_criteria は generate() 側で組み立て済み
@@ -545,14 +636,16 @@ def window3_generate(
         window = sequences[:, -3:] if sequences.size(1) >= 3 else sequences
         # この窓を書き込む位置を明示： [keep_len .. keep_len+len(window)-1]
         Lw = window.size(1)
-        cache_pos = torch.arange(keep_len, keep_len + Lw, device=device).unsqueeze(0)  # [1, Lw]
+        cache_pos = torch.arange(keep_len, keep_len + Lw, device=device).unsqueeze(
+            0
+        )  # [1, Lw]
         model_kwargs["cache_position"] = cache_pos
         model_kwargs["attention_mask"] = torch.ones_like(window, device=device)
 
         # 前進
         outputs = model(
             input_ids=window,
-            **model_kwargs,   # past_key_values は同じ Cache（in-place 更新）
+            **model_kwargs,  # past_key_values は同じ Cache（in-place 更新）
         )
         next_token_logits = outputs.logits[:, -1, :]
         next_token_scores = logits_processor(sequences, next_token_logits)
