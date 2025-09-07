@@ -141,8 +141,18 @@ class ResidualDiffLayer(nn.Module):
     ) -> Optional[torch.Tensor]:
         if mask2d is None:
             return None
+        else:
+            if past_kv_len > 0:
+                past = torch.ones(
+                    (bsz, past_kv_len),
+                    dtype=mask2d.dtype,
+                    device=mask2d.device,
+                )
+                attn_2d = torch.cat([past, mask2d], dim=1)  # [B, past_kv_len + seqlen]
+            else:
+                attn_2d = mask2d
         return _prepare_4d_causal_attention_mask(
-            mask2d,
+            attn_2d,
             (bsz, seqlen),
             hidden_states,
             past_key_values_length=past_kv_len,
@@ -244,8 +254,18 @@ class IntegrateUpscaleLayer(nn.Module):
     ) -> Optional[torch.Tensor]:
         if mask2d is None:
             return None
+        else:
+            if past_kv_len > 0:
+                past = torch.ones(
+                    (bsz, past_kv_len),
+                    dtype=mask2d.dtype,
+                    device=mask2d.device,
+                )
+                attn_2d = torch.cat([past, mask2d], dim=1)  # [B, past_kv_len + seqlen]
+            else:
+                attn_2d = mask2d
         return _prepare_4d_causal_attention_mask(
-            mask2d,
+            attn_2d,
             (bsz, seqlen),
             hidden_states,
             past_key_values_length=past_kv_len,
@@ -264,13 +284,8 @@ class IntegrateUpscaleLayer(nn.Module):
     ) -> Tuple[torch.Tensor, Optional[torch.Tensor], Optional[torch.Tensor]]:
         x = self.input_norm(hidden_states)
 
-        if x.size(1) == 1:
-            # bsz, seqlen, _ = x.shape
-            # mask2d = attention_mask_2d
-            raise ValueError("seq len must set > 1")
-        else:
-            x, mask2d = self.pre(x, attention_mask_2d)  # L→L+1
-            bsz, seqlen, _ = x.shape
+        x, mask2d = self.pre(x, attention_mask_2d)  # L→L+1
+        bsz, seqlen, _ = x.shape
 
         device = x.device
         if cache_position is not None:
@@ -551,7 +566,7 @@ class ResidualNetForCausalLM(Phi3PreTrainedModel, GenerationMixin):
 
     @torch.no_grad()
     def generate(self, *args, **kwargs):
-        super().generate(*args, custom_generate=window3_generate, **kwargs)
+        return super().generate(*args, **kwargs, custom_generate=window3_generate)
 
 
 def window3_generate(
@@ -653,7 +668,6 @@ def window3_generate(
         # greedy（必要に応じて sampling を追加）
         next_tokens = torch.argmax(next_token_scores, dim=-1, keepdim=True)  # [1,1]
 
-        # 追記
         sequences = torch.cat([sequences, next_tokens], dim=1)
 
         if streamer is not None:
