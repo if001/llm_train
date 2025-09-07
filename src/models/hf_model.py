@@ -47,7 +47,7 @@ def get_hf_models(config):
         return get_qwen(model_name)
     if "qwen2_0.5b_24_moe" in model_name:
         return get_qwen(model_name)
-    if "residual-tiny" in model_name:
+    if "residual-tiny" in model_name or "residual-small" in model_name:
         return ResidualNetForCausalLM(ResidualNetConfig(**config))
     if "residual-v2-tiny" in model_name:
         return ResidualNetV2ForCausalLM(ResidualNetV2Config(**config))
