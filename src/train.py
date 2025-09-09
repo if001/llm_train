@@ -100,6 +100,8 @@ def parse_arguments():
     parser.add_argument("--from_model_path", default=None, type=str)
     parser.add_argument("--to_model_name", default=None, type=str)
     parser.add_argument("--tpu_num_cores", default=None, type=int)
+    parser.add_argument("--fp16", action='store_true')
+    parser.add_argument("--bf16", action='store_true')
 
     args = parser.parse_args()
     print("args: ", args)
@@ -263,6 +265,13 @@ def main():
             return batch
 
     print("--- training start ... ---")
+    bf16=False
+    if args.bf16:
+        bf16 = args.bf16
+    fp16=True
+    if args.fp16:
+        fp16 = args.fp16
+        
     training_args = TrainingArguments(
         output_dir=args.output_dir,
         num_train_epochs=args.epochs,
@@ -286,8 +295,8 @@ def main():
         save_total_limit=3,
         save_steps=args.save_steps,
         report_to="wandb",
-        # bf16=True,
-        fp16=True,
+        bf16=bf16,
+        fp16=fp16,
         # ddp_backend="nccl",
         # half_precision_backend="apex",
         # deepspeed=args.ds_config_path,
@@ -301,7 +310,8 @@ def main():
         max_steps=args.max_steps,
         resume_from_checkpoint=args.resume_path,
         ignore_data_skip=args.ignore_data_skip,
-        tpu_num_cores=args.tpu_num_cores,
+        tpu_num_cores=args.tpu_num_cores, ## for tpu
+        optim= "adamw_torch" if args.tpu_num_cores else None ## for tpu
     )
     print("parallel_mode: ", training_args.parallel_mode)
     print("world_size", training_args.world_size)
@@ -356,9 +366,17 @@ def main():
         trainer.train()
     print("train done..")
 
-    model.save_pretrained(args.output_dir)
-    print("save...")
-    tokenizer.save_pretrained(args.output_dir)
+
+    if args.tpu_num_cores:
+        trainer.accelerator.wait_for_everyone()
+        if trainer.is_world_process_zero():
+            cpu_model = trainer.accelerator.unwrap_model(trainer.model).to("cpu")
+            cpu_model.save_pretrained(args.output_dir, safe_serialization=True)
+            tokenizer.save_pretrained(args.output_dir)
+    else:
+        model.save_pretrained(args.output_dir)
+        print("save...")
+        tokenizer.save_pretrained(args.output_dir)
 
     for v in model.state_dict():
         print(v, model.state_dict()[v].shape)
@@ -373,3 +391,5 @@ def main():
 
 if __name__ == "__main__":
     main()
+
+    
