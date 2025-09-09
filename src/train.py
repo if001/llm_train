@@ -358,6 +358,7 @@ def main():
 
     model.save_pretrained(args.output_dir)
     print("save...")
+    tokenizer.save_pretrained(args.output_dir)
 
     for v in model.state_dict():
         print(v, model.state_dict()[v].shape)
