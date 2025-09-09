@@ -99,6 +99,7 @@ def parse_arguments():
 
     parser.add_argument("--from_model_path", default=None, type=str)
     parser.add_argument("--to_model_name", default=None, type=str)
+    parser.add_argument("--tpu_num_cores", default=None, type=int)
 
     args = parser.parse_args()
     print("args: ", args)
@@ -163,6 +164,10 @@ def load_model_with_sub_layer(base_model, to_model):
 
 def main():
     args = parse_arguments()
+    if args.tpu_num_cores:
+        import torch_xla.core.xla_model as xm
+        print("XLA device(s):", xm.get_xla_supported_devices())
+    
     # wandb.init(project=args.wandb_project, entity=args.wandb_entity)
     if args.wandb_project:
         print(f"init wandb {args.wandb_project}")
@@ -296,6 +301,7 @@ def main():
         max_steps=args.max_steps,
         resume_from_checkpoint=args.resume_path,
         ignore_data_skip=args.ignore_data_skip,
+        tpu_num_cores=args.tpu_num_cores,
     )
     print("parallel_mode: ", training_args.parallel_mode)
     print("world_size", training_args.world_size)
