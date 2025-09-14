@@ -25,7 +25,6 @@ from models.phi3 import (
     Phi3RMSNorm,
     Phi3MLP,
     # Phi3SdpaAttention,
-    Phi3DecoderLayer,
     Phi3Attention,
     Phi3RotaryEmbedding,
 )
@@ -117,7 +116,7 @@ class ResidualDiffLayer(nn.Module):
     """
 
     def __init__(
-        self, config: ResidualNetConfig, layer_idx: int, rotary_emb: Phi3RotaryEmbedding
+            self, config: ResidualNetConfig, layer_idx: int, rotary_emb: Phi3RotaryEmbedding, enable=True,
     ):
         super().__init__()
         self.config = config
@@ -131,7 +130,8 @@ class ResidualDiffLayer(nn.Module):
         self.mlp = Phi3MLP(config)
         self.dropout_mlp = nn.Dropout(config.resid_pdrop)
         self.rotary_emb = rotary_emb  # 共有 RoPE インスタンス
-
+        self.enable = enable
+        
     def _to_4d_mask(
         self,
         mask2d: Optional[torch.Tensor],
@@ -176,9 +176,13 @@ class ResidualDiffLayer(nn.Module):
             # bsz, seqlen, _ = x.shape
             # mask2d = attention_mask_2d
             raise ValueError("seq len must set > 1")
-        else:
+
+        if self.enable:
             x, mask2d = self.pre(x, attention_mask_2d)  # L→L-1
             bsz, seqlen, _ = x.shape
+        else:
+            bsz, seqlen, _ = x.shape
+            mask2d = attention_mask_2d
 
         device = x.device
 
@@ -230,7 +234,7 @@ class IntegrateUpscaleLayer(nn.Module):
     """
 
     def __init__(
-        self, config: ResidualNetConfig, layer_idx: int, rotary_emb: Phi3RotaryEmbedding
+            self, config: ResidualNetConfig, layer_idx: int, rotary_emb: Phi3RotaryEmbedding, enable=True
     ):
         super().__init__()
         self.config = config
@@ -244,6 +248,7 @@ class IntegrateUpscaleLayer(nn.Module):
         self.mlp = Phi3MLP(config)
         self.dropout_mlp = nn.Dropout(config.resid_pdrop)
         self.rotary_emb = rotary_emb
+        self.enable = enable
 
     def _to_4d_mask(
         self,
@@ -285,8 +290,12 @@ class IntegrateUpscaleLayer(nn.Module):
     ) -> Tuple[torch.Tensor, Optional[torch.Tensor], Optional[torch.Tensor]]:
         x = self.input_norm(hidden_states)
 
-        x, mask2d = self.pre(x, attention_mask_2d)  # L→L+1
-        bsz, seqlen, _ = x.shape
+        if self.enable:
+            x, mask2d = self.pre(x, attention_mask_2d)  # L→L+1
+            bsz, seqlen, _ = x.shape
+        else:
+            bsz, seqlen, _ = x.shape
+            mask2d = attention_mask_2d
 
         device = x.device
         if cache_position is not None:
@@ -383,13 +392,13 @@ class ResidualNetModel(Phi3PreTrainedModel):
             _part = config.num_hidden_layers // 4
             for i in range(_part):
                 _downs.append(ResidualDiffLayer(config, layer_idx=i, rotary_emb=self.rotary_emb))
-                _downs.append(Phi3DecoderLayer(config, i+1))
+                _downs.append(ResidualDiffLayer(config, layer_idx=i+1, rotary_emb=self.rotary_emb, enable=False))
             self.down_layers = nn.ModuleList(_downs)
             
             _up = []
             for i in range(_part):
                 _up.append(IntegrateUpscaleLayer(config, layer_idx=i+_part, rotary_emb=self.rotary_emb))
-                _up.append(Phi3DecoderLayer(config, i+_part+1))
+                _up.append(IntegrateUpscaleLayer(config, layer_idx=i+_part+1, rotary_emb=self.rotary_emb, enable=False))
             self.up_layers = nn.ModuleList(_up)
                 
 
