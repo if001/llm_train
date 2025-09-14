@@ -25,6 +25,7 @@ from models.phi3 import (
     Phi3RMSNorm,
     Phi3MLP,
     # Phi3SdpaAttention,
+    Phi3DecoderLayer,
     Phi3Attention,
     Phi3RotaryEmbedding,
 )
@@ -344,6 +345,9 @@ class ResidualNetModel(Phi3PreTrainedModel):
         assert (
             config.num_hidden_layers % 2 == 0
         ), "num_hidden_layers は偶数にしてください。"
+        assert (
+            config.num_hidden_layers % 4 == 0
+        ), "num_hidden_layers は4の倍数にしてください"
 
         self.padding_idx = config.pad_token_id
         self.vocab_size = config.vocab_size
@@ -355,23 +359,39 @@ class ResidualNetModel(Phi3PreTrainedModel):
         self.rotary_emb = Phi3RotaryEmbedding(config=config)
         self.gradient_checkpointing = False
 
-        half = config.num_hidden_layers // 2
-        # 前半 (down)
-        self.down_layers = nn.ModuleList(
-            [
-                ResidualDiffLayer(config, layer_idx=i, rotary_emb=self.rotary_emb)
-                for i in range(half)
-            ]
-        )
-        # 後半 (up)
-        self.up_layers = nn.ModuleList(
-            [
-                IntegrateUpscaleLayer(
-                    config, layer_idx=half + i, rotary_emb=self.rotary_emb
-                )
-                for i in range(half)
-            ]
-        )
+
+        if config.num_hidden_layers <= 4:
+            half = config.num_hidden_layers // 2
+            # 前半 (down)
+            self.down_layers = nn.ModuleList(
+                [
+                    ResidualDiffLayer(config, layer_idx=i, rotary_emb=self.rotary_emb)
+                    for i in range(half)
+                ]
+            )
+            # 後半 (up)
+            self.up_layers = nn.ModuleList(
+                [
+                    IntegrateUpscaleLayer(
+                        config, layer_idx=half + i, rotary_emb=self.rotary_emb
+                    )
+                    for i in range(half)
+                ]
+            )
+        else:
+            _downs = []
+            _part = config.num_hidden_layers // 4
+            for i in range(_part):
+                _downs.append(ResidualDiffLayer(config, layer_idx=i, rotary_emb=self.rotary_emb))
+                _downs.append(Phi3DecoderLayer(config, i+1))
+            self.down_layers = nn.ModuleList(_downs)
+            
+            _up = []
+            for i in range(_part):
+                _up.append(IntegrateUpscaleLayer(config, layer_idx=i+_part, rotary_emb=self.rotary_emb))
+                _up.append(Phi3DecoderLayer(config, i+_part+1))
+            self.up_layers = nn.ModuleList(_up)
+                
 
         # Initialize weights and apply final processing
         self.post_init()
