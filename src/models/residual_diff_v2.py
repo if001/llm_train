@@ -29,7 +29,8 @@ from transformers.generation.utils import GenerationMixin
 
 
 class ResidualNetV2Config(Phi3Config):
-    model_type = "ResidualNetV2Config"
+    model_type = "residualnetv2config"
+
     def __init__(self, **kwargs):
         super().__init__(**kwargs)
 
@@ -38,13 +39,16 @@ class ResidualNetV2Config(Phi3Config):
 # helpers (差分/マスク, 形状ユーティリティ, optional RoPE)
 # ==============
 
+
 def first_order_diff(x: torch.Tensor) -> torch.Tensor:
     # (B,L,H) -> (B,L-1,H)
     return x[:, 1:, :] - x[:, :-1, :]
 
+
 def second_order_diff(x: torch.Tensor) -> torch.Tensor:
     # (B,L,H) -> (B,L-2,H): x_{t+2} - 2 x_{t+1} + x_t
     return x[:, 2:, :] - 2.0 * x[:, 1:-1, :] + x[:, :-2, :]
+
 
 def mask_and(*tensors: torch.Tensor) -> torch.Tensor:
     # AND を丁寧に（float/bool いずれでも可）
@@ -53,7 +57,10 @@ def mask_and(*tensors: torch.Tensor) -> torch.Tensor:
         out = out & t.bool()
     return out.to(tensors[0].dtype)
 
-def build_mask_for_diff(mask2d: Optional[torch.Tensor], order: int) -> Optional[torch.Tensor]:
+
+def build_mask_for_diff(
+    mask2d: Optional[torch.Tensor], order: int
+) -> Optional[torch.Tensor]:
     if mask2d is None:
         return None
     if order == 0:
@@ -65,6 +72,7 @@ def build_mask_for_diff(mask2d: Optional[torch.Tensor], order: int) -> Optional[
     else:
         raise ValueError("order must be 0,1,2")
 
+
 def shape_qkv(x: torch.Tensor, num_heads: int) -> torch.Tensor:
     # (B,L,H) -> (B,heads,L,head_dim)
     B, L, H = x.shape
@@ -72,15 +80,18 @@ def shape_qkv(x: torch.Tensor, num_heads: int) -> torch.Tensor:
     x = x.view(B, L, num_heads, head_dim).transpose(1, 2)  # (B,heads,L,head_dim)
     return x
 
+
 def unshape_ctx(x: torch.Tensor) -> torch.Tensor:
     # (B,heads,L,head_dim) -> (B,L,H)
     B, nH, L, d = x.shape
     return x.transpose(1, 2).contiguous().view(B, L, nH * d)
 
+
 # RoPE helper（必要な場合のみ使用）
 def rotate_half(x):
     x1, x2 = x[..., : x.shape[-1] // 2], x[..., x.shape[-1] // 2 :]
     return torch.cat((-x2, x1), dim=-1)
+
 
 def apply_rotary_pos_emb(q, k, cos, sin, position_ids=None, unsqueeze_dim=1):
     cos = cos.unsqueeze(unsqueeze_dim)
@@ -97,11 +108,18 @@ def apply_rotary_pos_emb(q, k, cos, sin, position_ids=None, unsqueeze_dim=1):
 # Self-Block （Phi-3 部品そのまま）
 # ==============
 
+
 class Phi3SelfBlock(nn.Module):
     """
     PreNorm -> Self-Attn(SDPA+RoPE) -> resid -> PreNorm -> MLP -> resid
     """
-    def __init__(self, config: ResidualNetV2Config, layer_idx: int, rotary_emb: Phi3RotaryEmbedding):
+
+    def __init__(
+        self,
+        config: ResidualNetV2Config,
+        layer_idx: int,
+        rotary_emb: Phi3RotaryEmbedding,
+    ):
         super().__init__()
         self.config = config
         self.layer_idx = layer_idx
@@ -118,14 +136,18 @@ class Phi3SelfBlock(nn.Module):
         if mask2d is None:
             return None
         return _prepare_4d_causal_attention_mask(
-            mask2d, (bsz, seqlen), hidden_states, past_key_values_length=0, sliding_window=self.config.sliding_window
+            mask2d,
+            (bsz, seqlen),
+            hidden_states,
+            past_key_values_length=0,
+            sliding_window=self.config.sliding_window,
         )
 
     def forward(
         self,
-        hidden_states: torch.Tensor,         # (B,L,H)
-        mask2d: Optional[torch.Tensor],      # (B,L)
-        position_ids: Optional[torch.Tensor],# unused here; we re-make per len
+        hidden_states: torch.Tensor,  # (B,L,H)
+        mask2d: Optional[torch.Tensor],  # (B,L)
+        position_ids: Optional[torch.Tensor],  # unused here; we re-make per len
         output_attentions: bool = False,
     ) -> Tuple[torch.Tensor, Optional[torch.Tensor]]:
         x = self.in_norm(hidden_states)
@@ -133,7 +155,7 @@ class Phi3SelfBlock(nn.Module):
         pos = torch.arange(L, device=x.device).unsqueeze(0).expand(B, -1)
         attn_mask = self._prepare_4d_mask(mask2d, B, L, x)
         position_embeddings = self.rotary_emb(hidden_states, pos)
-        
+
         attn_out, attn_weights = self.attn(
             hidden_states=x,
             attention_mask=attn_mask,
@@ -155,6 +177,7 @@ class Phi3SelfBlock(nn.Module):
 # Cross-Attention （シンプル実装／GQA対応。既定で RoPE 無し）
 # ==============
 
+
 class SimpleCrossAttention(nn.Module):
     """
     Query: x_q (B,Lq,H)   Key/Value: x_kv (B,Lk,H)
@@ -162,7 +185,13 @@ class SimpleCrossAttention(nn.Module):
     - 既定: RoPE 適用なし（decoder-encoder cross は相対位置の意味付けが曖昧なため）。
       use_rope_in_cross_attn=True で RoPE を適用可能。
     """
-    def __init__(self, config: ResidualNetV2Config, rotary_emb: Phi3RotaryEmbedding, use_rope_in_cross_attn: bool = False):
+
+    def __init__(
+        self,
+        config: ResidualNetV2Config,
+        rotary_emb: Phi3RotaryEmbedding,
+        use_rope_in_cross_attn: bool = False,
+    ):
         super().__init__()
         self.config = config
         self.rotary_emb = rotary_emb
@@ -180,7 +209,7 @@ class SimpleCrossAttention(nn.Module):
         self.k_proj = nn.Linear(H, nKV * self.head_dim, bias=False)
         self.v_proj = nn.Linear(H, nKV * self.head_dim, bias=False)
         self.o_proj = nn.Linear(H, H, bias=False)
-        self.dropout = nn.Dropout(config.attn_pdrop)
+        self.dropout = nn.Dropout(config.attention_dropout)
 
         # 追加正規化（安定のため）
         self.q_norm = Phi3RMSNorm(H, eps=config.rms_norm_eps)
@@ -192,7 +221,9 @@ class SimpleCrossAttention(nn.Module):
             return x
         return x.repeat_interleave(self.groups, dim=1)
 
-    def _make_attn_mask_bool(self, enc_mask2d: Optional[torch.Tensor], Lq: int, Lk: int, B: int) -> Optional[torch.Tensor]:
+    def _make_attn_mask_bool(
+        self, enc_mask2d: Optional[torch.Tensor], Lq: int, Lk: int, B: int
+    ) -> Optional[torch.Tensor]:
         # enc_mask2d: (B,Lk) in {0,1}  -> broadcastable bool mask of shape (B,1,Lq,Lk)
         if enc_mask2d is None:
             return None
@@ -201,22 +232,22 @@ class SimpleCrossAttention(nn.Module):
 
     def forward(
         self,
-        x_q: torch.Tensor,             # (B,Lq,H)
-        x_kv: torch.Tensor,            # (B,Lk,H)
+        x_q: torch.Tensor,  # (B,Lq,H)
+        x_kv: torch.Tensor,  # (B,Lk,H)
         enc_mask2d: Optional[torch.Tensor] = None,  # (B,Lk)
     ) -> torch.Tensor:
         B, Lq, H = x_q.shape
         Lk = x_kv.size(1)
 
-        q = self.q_proj(self.q_norm(x_q))                      # (B,Lq,H)
-        k = self.k_proj(self.kv_norm(x_kv))                    # (B,Lk, nKV*Hd)
-        v = self.v_proj(self.kv_norm(x_kv))                    # (B,Lk, nKV*Hd)
+        q = self.q_proj(self.q_norm(x_q))  # (B,Lq,H)
+        k = self.k_proj(self.kv_norm(x_kv))  # (B,Lk, nKV*Hd)
+        v = self.v_proj(self.kv_norm(x_kv))  # (B,Lk, nKV*Hd)
 
-        q = shape_qkv(q, self.nH)                              # (B,nH,Lq,Hd)
+        q = shape_qkv(q, self.nH)  # (B,nH,Lq,Hd)
         k = k.view(B, Lk, self.nKV, self.head_dim).transpose(1, 2)  # (B,nKV,Lk,Hd)
         v = v.view(B, Lk, self.nKV, self.head_dim).transpose(1, 2)  # (B,nKV,Lk,Hd)
-        k = self._kv_repeat(k)                                 # (B,nH,Lk,Hd)
-        v = self._kv_repeat(v)                                 # (B,nH,Lk,Hd)
+        k = self._kv_repeat(k)  # (B,nH,Lk,Hd)
+        v = self._kv_repeat(v)  # (B,nH,Lk,Hd)
 
         if self.use_rope:
             # 参考実装：各系列長に合わせて cos/sin を取り、q/k に適用
@@ -225,11 +256,17 @@ class SimpleCrossAttention(nn.Module):
             pos_k = torch.arange(Lk, device=x_q.device).unsqueeze(0).expand(B, -1)
             # ダミーの [B,L,head_dim] を渡して cos/sin を得る（実装に依存するため try/except）
             try:
-                dummy_q = torch.zeros(B, Lq, self.head_dim, device=x_q.device, dtype=x_q.dtype)
-                dummy_k = torch.zeros(B, Lk, self.head_dim, device=x_q.device, dtype=x_q.dtype)
+                dummy_q = torch.zeros(
+                    B, Lq, self.head_dim, device=x_q.device, dtype=x_q.dtype
+                )
+                dummy_k = torch.zeros(
+                    B, Lk, self.head_dim, device=x_q.device, dtype=x_q.dtype
+                )
                 cos_q, sin_q = self.rotary_emb(dummy_q, pos_q)
                 cos_k, sin_k = self.rotary_emb(dummy_k, pos_k)
-                q, k = apply_rotary_pos_emb(q, k, cos_q, sin_k, position_ids=None, unsqueeze_dim=2)
+                q, k = apply_rotary_pos_emb(
+                    q, k, cos_q, sin_k, position_ids=None, unsqueeze_dim=2
+                )
             except Exception:
                 # RoPE 未対応環境では静かにスキップ（Self-Attn 側で RoPE が効いていれば全体としては相対位置信号を保持）
                 pass
@@ -237,10 +274,15 @@ class SimpleCrossAttention(nn.Module):
         # scaled dot-product attention
         attn_mask = self._make_attn_mask_bool(enc_mask2d, Lq, Lk, B)  # True=mask
         y = F.scaled_dot_product_attention(
-            q, k, v, attn_mask=attn_mask, dropout_p=self.dropout.p if self.training else 0.0, is_causal=False
+            q,
+            k,
+            v,
+            attn_mask=attn_mask,
+            dropout_p=self.dropout.p if self.training else 0.0,
+            is_causal=False,
         )  # (B,nH,Lq,Hd)
 
-        y = unshape_ctx(y)                                           # (B,Lq,H)
+        y = unshape_ctx(y)  # (B,Lq,H)
         y = self.o_proj(y)
         return y
 
@@ -249,6 +291,7 @@ class SimpleCrossAttention(nn.Module):
 # v2: 3本の枝を「各3層」通してから、0階に Cross-Attn(←1階) → Cross-Attn(←2階)
 # ==============
 
+
 class ResidualNetV2Model(Phi3PreTrainedModel):
     """
     1) embedding -> 0/1/2階差分 3枝
@@ -256,25 +299,50 @@ class ResidualNetV2Model(Phi3PreTrainedModel):
     3) x0 に CrossAttn(x1_final) → residual、続けて CrossAttn(x2_final) → residual
     出力は x0（原系列長 L）
     """
-    def __init__(self, config: ResidualNetV2Config, use_rope_in_cross_attn: bool = False):
+
+    config_class = ResidualNetV2Config
+
+    def __init__(
+        self, config: ResidualNetV2Config, use_rope_in_cross_attn: bool = False
+    ):
         super().__init__(config)
         self.padding_idx = config.pad_token_id
         self.vocab_size = config.vocab_size
 
-        self.embed_tokens = nn.Embedding(config.vocab_size, config.hidden_size, self.padding_idx)
+        self.embed_tokens = nn.Embedding(
+            config.vocab_size, config.hidden_size, self.padding_idx
+        )
         self.rotary_emb = Phi3RotaryEmbedding(config=config)
         self.norm_out = Phi3RMSNorm(config.hidden_size, eps=config.rms_norm_eps)
 
-        # 各枝 3 層
-        self.branch0 = nn.ModuleList([Phi3SelfBlock(config, layer_idx=i, rotary_emb=self.rotary_emb) for i in range(3)])
-        self.branch1 = nn.ModuleList([Phi3SelfBlock(config, layer_idx=100+i, rotary_emb=self.rotary_emb) for i in range(3)])
-        self.branch2 = nn.ModuleList([Phi3SelfBlock(config, layer_idx=200+i, rotary_emb=self.rotary_emb) for i in range(3)])
+        self.branch0 = nn.ModuleList(
+            [
+                Phi3SelfBlock(config, layer_idx=i, rotary_emb=self.rotary_emb)
+                for i in range(config.num_hidden_layers)
+            ]
+        )
+        self.branch1 = nn.ModuleList(
+            [
+                Phi3SelfBlock(config, layer_idx=100 + i, rotary_emb=self.rotary_emb)
+                for i in range(config.num_hidden_layers)
+            ]
+        )
+        self.branch2 = nn.ModuleList(
+            [
+                Phi3SelfBlock(config, layer_idx=200 + i, rotary_emb=self.rotary_emb)
+                for i in range(config.num_hidden_layers)
+            ]
+        )
 
         # Cross-Attn × 2 （0階 <- 1階, 0階 <- 2階）
         self.cross01_norm = Phi3RMSNorm(config.hidden_size, eps=config.rms_norm_eps)
-        self.cross01 = SimpleCrossAttention(config, self.rotary_emb, use_rope_in_cross_attn)
+        self.cross01 = SimpleCrossAttention(
+            config, self.rotary_emb, use_rope_in_cross_attn
+        )
         self.cross12_norm = Phi3RMSNorm(config.hidden_size, eps=config.rms_norm_eps)
-        self.cross02 = SimpleCrossAttention(config, self.rotary_emb, use_rope_in_cross_attn)
+        self.cross02 = SimpleCrossAttention(
+            config, self.rotary_emb, use_rope_in_cross_attn
+        )
 
         self.dropout = nn.Dropout(config.resid_pdrop)
         self.post_init()
@@ -282,14 +350,16 @@ class ResidualNetV2Model(Phi3PreTrainedModel):
     def forward(
         self,
         input_ids: Optional[torch.LongTensor] = None,
-        attention_mask: Optional[torch.Tensor] = None,   # (B,L)
+        attention_mask: Optional[torch.Tensor] = None,  # (B,L)
         inputs_embeds: Optional[torch.FloatTensor] = None,
         output_attentions: Optional[bool] = None,
         output_hidden_states: Optional[bool] = None,
         return_dict: Optional[bool] = None,
     ) -> BaseModelOutput:
         output_attentions = False if output_attentions is None else output_attentions
-        output_hidden_states = False if output_hidden_states is None else output_hidden_states
+        output_hidden_states = (
+            False if output_hidden_states is None else output_hidden_states
+        )
         return_dict = True if return_dict is None else return_dict
 
         if inputs_embeds is None:
@@ -298,10 +368,14 @@ class ResidualNetV2Model(Phi3PreTrainedModel):
             x0 = inputs_embeds
         B, L, H = x0.shape
 
-        m0 = attention_mask if attention_mask is not None else torch.ones(B, L, device=x0.device, dtype=torch.long)
+        m0 = (
+            attention_mask
+            if attention_mask is not None
+            else torch.ones(B, L, device=x0.device, dtype=torch.long)
+        )
         # 1階/2階差分
-        x1 = first_order_diff(x0)      # (B,L-1,H)
-        x2 = second_order_diff(x0)     # (B,L-2,H)
+        x1 = first_order_diff(x0)  # (B,L-1,H)
+        x2 = second_order_diff(x0)  # (B,L-2,H)
         m1 = build_mask_for_diff(m0, 1)
         m2 = build_mask_for_diff(m0, 2)
 
@@ -332,10 +406,15 @@ class ResidualNetV2Model(Phi3PreTrainedModel):
 
 class ResidualNetV2ForCausalLM(Phi3PreTrainedModel, GenerationMixin):
     _tied_weights_keys = ["lm_head.weight"]
+    config_class = ResidualNetV2Config
 
-    def __init__(self, config: ResidualNetV2Config, use_rope_in_cross_attn: bool = False):
+    def __init__(
+        self, config: ResidualNetV2Config, use_rope_in_cross_attn: bool = False
+    ):
         super().__init__(config)
-        self.model = ResidualNetV2Model(config, use_rope_in_cross_attn=use_rope_in_cross_attn)
+        self.model = ResidualNetV2Model(
+            config, use_rope_in_cross_attn=use_rope_in_cross_attn
+        )
         self.vocab_size = config.vocab_size
         self.lm_head = nn.Linear(config.hidden_size, config.vocab_size, bias=False)
         # weight tying
@@ -365,10 +444,16 @@ class ResidualNetV2ForCausalLM(Phi3PreTrainedModel, GenerationMixin):
             shift_logits = logits[:, :-1, :].contiguous()
             shift_labels = labels[:, 1:].contiguous()
             loss_fct = nn.CrossEntropyLoss()
-            loss = loss_fct(shift_logits.view(-1, self.vocab_size), shift_labels.view(-1))
+            loss = loss_fct(
+                shift_logits.view(-1, self.vocab_size), shift_labels.view(-1)
+            )
 
         return CausalLMOutputWithPast(
-            loss=loss, logits=logits, past_key_values=None, hidden_states=None, attentions=None
+            loss=loss,
+            logits=logits,
+            past_key_values=None,
+            hidden_states=None,
+            attentions=None,
         )
 
     @property
@@ -377,35 +462,79 @@ class ResidualNetV2ForCausalLM(Phi3PreTrainedModel, GenerationMixin):
 
 
 # ==============
-# v3: 「各枝1層 + x0<-x1 Cross + x0<-x2 Cross」を1ブロックとして **3回** 反復
+# v3: 「各枝1層 + x0<-x1 Cross + x0<-x2 Cross」を1ブロックとして **n回** 反復
 # ==============
+
 
 class ResidualNetV3Model(Phi3PreTrainedModel):
     """
     1 block = { 3枝: SelfBlock各1層 → x0<-x1 Cross → x0<-x2 Cross }
     これを 3 回繰り返す（早期融合 + 反復洗練）
     """
-    def __init__(self, config: ResidualNetV2Config, use_rope_in_cross_attn: bool = False):
+
+    config_class = ResidualNetV2Config
+
+    def __init__(
+        self, config: ResidualNetV2Config, use_rope_in_cross_attn: bool = False
+    ):
         super().__init__(config)
         self.padding_idx = config.pad_token_id
         self.vocab_size = config.vocab_size
 
-        self.embed_tokens = nn.Embedding(config.vocab_size, config.hidden_size, self.padding_idx)
+        self.embed_tokens = nn.Embedding(
+            config.vocab_size, config.hidden_size, self.padding_idx
+        )
         self.rotary_emb = Phi3RotaryEmbedding(config=config)
         self.norm_out = Phi3RMSNorm(config.hidden_size, eps=config.rms_norm_eps)
         self.dropout = nn.Dropout(config.resid_pdrop)
 
-        # 3 ブロック分の層を用意（枝それぞれ + CrossAttn×2）
-        self.blocks_branch0 = nn.ModuleList([Phi3SelfBlock(config, layer_idx=10+i, rotary_emb=self.rotary_emb) for i in range(3)])
-        self.blocks_branch1 = nn.ModuleList([Phi3SelfBlock(config, layer_idx=110+i, rotary_emb=self.rotary_emb) for i in range(3)])
-        self.blocks_branch2 = nn.ModuleList([Phi3SelfBlock(config, layer_idx=210+i, rotary_emb=self.rotary_emb) for i in range(3)])
+        # ブロック分の層を用意（枝それぞれ + CrossAttn×2）
+        self.blocks_branch0 = nn.ModuleList(
+            [
+                Phi3SelfBlock(config, layer_idx=10 + i, rotary_emb=self.rotary_emb)
+                for i in range(config.num_hidden_layers)
+            ]
+        )
+        self.blocks_branch1 = nn.ModuleList(
+            [
+                Phi3SelfBlock(config, layer_idx=110 + i, rotary_emb=self.rotary_emb)
+                for i in range(config.num_hidden_layers)
+            ]
+        )
+        self.blocks_branch2 = nn.ModuleList(
+            [
+                Phi3SelfBlock(config, layer_idx=210 + i, rotary_emb=self.rotary_emb)
+                for i in range(config.num_hidden_layers)
+            ]
+        )
 
-        self.cross_norm_01 = nn.ModuleList([Phi3RMSNorm(config.hidden_size, eps=config.rms_norm_eps) for _ in range(3)])
-        self.cross_01 = nn.ModuleList([SimpleCrossAttention(config, self.rotary_emb, use_rope_in_cross_attn) for _ in range(3)])
+        self.cross_norm_01 = nn.ModuleList(
+            [
+                Phi3RMSNorm(config.hidden_size, eps=config.rms_norm_eps)
+                for _ in range(config.num_hidden_layers)
+            ]
+        )
+        self.cross_01 = nn.ModuleList(
+            [
+                SimpleCrossAttention(config, self.rotary_emb, use_rope_in_cross_attn)
+                for _ in range(config.num_hidden_layers)
+            ]
+        )
 
-        self.cross_norm_02 = nn.ModuleList([Phi3RMSNorm(config.hidden_size, eps=config.rms_norm_eps) for _ in range(3)])
-        self.cross_02 = nn.ModuleList([SimpleCrossAttention(config, self.rotary_emb, use_rope_in_cross_attn) for _ in range(3)])
+        self.cross_norm_02 = nn.ModuleList(
+            [
+                Phi3RMSNorm(config.hidden_size, eps=config.rms_norm_eps)
+                for _ in range(config.num_hidden_layers)
+            ]
+        )
+        self.cross_02 = nn.ModuleList(
+            [
+                SimpleCrossAttention(config, self.rotary_emb, use_rope_in_cross_attn)
+                for _ in range(config.num_hidden_layers)
+            ]
+        )
 
+        self.config = config
         self.post_init()
 
     def forward(
@@ -418,7 +547,9 @@ class ResidualNetV3Model(Phi3PreTrainedModel):
         return_dict: Optional[bool] = None,
     ) -> BaseModelOutput:
         output_attentions = False if output_attentions is None else output_attentions
-        output_hidden_states = False if output_hidden_states is None else output_hidden_states
+        output_hidden_states = (
+            False if output_hidden_states is None else output_hidden_states
+        )
         return_dict = True if return_dict is None else return_dict
 
         if inputs_embeds is None:
@@ -426,24 +557,36 @@ class ResidualNetV3Model(Phi3PreTrainedModel):
         else:
             x0 = inputs_embeds
         B, L, H = x0.shape
-        m0 = attention_mask if attention_mask is not None else torch.ones(B, L, device=x0.device, dtype=torch.long)
+        m0 = (
+            attention_mask
+            if attention_mask is not None
+            else torch.ones(B, L, device=x0.device, dtype=torch.long)
+        )
 
         # 初回の差分（1,2階）は x0 から
         def mk_x1x2(x0, m0):
-            return first_order_diff(x0), second_order_diff(x0), build_mask_for_diff(m0, 1), build_mask_for_diff(m0, 2)
+            return (
+                first_order_diff(x0),
+                second_order_diff(x0),
+                build_mask_for_diff(m0, 1),
+                build_mask_for_diff(m0, 2),
+            )
 
         x1, x2, m1, m2 = mk_x1x2(x0, m0)
 
-        # 3 ブロック反復
-        for i in range(3):
+        for i in range(self.config.num_hidden_layers):
             # 各枝 1 層
             x0, _ = self.blocks_branch0[i](x0, m0, None, output_attentions=False)
             x1, _ = self.blocks_branch1[i](x1, m1, None, output_attentions=False)
             x2, _ = self.blocks_branch2[i](x2, m2, None, output_attentions=False)
 
             # Cross: x0 <- x1, ついで x0 <- x2
-            x0 = x0 + self.dropout(self.cross_01[i](self.cross_norm_01[i](x0), x1, enc_mask2d=m1))
-            x0 = x0 + self.dropout(self.cross_02[i](self.cross_norm_02[i](x0), x2, enc_mask2d=m2))
+            x0 = x0 + self.dropout(
+                self.cross_01[i](self.cross_norm_01[i](x0), x1, enc_mask2d=m1)
+            )
+            x0 = x0 + self.dropout(
+                self.cross_02[i](self.cross_norm_02[i](x0), x2, enc_mask2d=m2)
+            )
 
             # 次ブロック用に 1/2階差分を「最新の x0」から再計算する手もある
             # （Down(2) 的な早期融合→再分解の設計に合わせたい場合）
@@ -465,10 +608,15 @@ class ResidualNetV3Model(Phi3PreTrainedModel):
 
 class ResidualNetV3ForCausalLM(Phi3PreTrainedModel, GenerationMixin):
     _tied_weights_keys = ["lm_head.weight"]
+    config_class = ResidualNetV2Config
 
-    def __init__(self, config: ResidualNetV2Config, use_rope_in_cross_attn: bool = False):
+    def __init__(
+        self, config: ResidualNetV2Config, use_rope_in_cross_attn: bool = False
+    ):
         super().__init__(config)
-        self.model = ResidualNetV3Model(config, use_rope_in_cross_attn=use_rope_in_cross_attn)
+        self.model = ResidualNetV3Model(
+            config, use_rope_in_cross_attn=use_rope_in_cross_attn
+        )
         self.vocab_size = config.vocab_size
         self.lm_head = nn.Linear(config.hidden_size, config.vocab_size, bias=False)
         self.lm_head.weight = self.model.embed_tokens.weight
@@ -497,10 +645,16 @@ class ResidualNetV3ForCausalLM(Phi3PreTrainedModel, GenerationMixin):
             shift_logits = logits[:, :-1, :].contiguous()
             shift_labels = labels[:, 1:].contiguous()
             loss_fct = nn.CrossEntropyLoss()
-            loss = loss_fct(shift_logits.view(-1, self.vocab_size), shift_labels.view(-1))
+            loss = loss_fct(
+                shift_logits.view(-1, self.vocab_size), shift_labels.view(-1)
+            )
 
         return CausalLMOutputWithPast(
-            loss=loss, logits=logits, past_key_values=None, hidden_states=None, attentions=None
+            loss=loss,
+            logits=logits,
+            past_key_values=None,
+            hidden_states=None,
+            attentions=None,
         )
 
     @property
