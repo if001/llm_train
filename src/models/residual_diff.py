@@ -31,7 +31,7 @@ from models.phi3 import (
 
 
 class ResidualNetConfig(Phi3Config):
-    model_type = "ResidualNetConfig"
+    model_type = "residualnet"
 
     def __init__(self, **kwargs):
         super().__init__(**kwargs)
@@ -172,7 +172,7 @@ class ResidualDiffLayer(nn.Module):
     ) -> Tuple[torch.Tensor, Optional[torch.Tensor], Optional[torch.Tensor]]:
         x = self.input_norm(hidden_states)
 
-        if x.size(1) == 1:
+        if x.size(1) == 1 and self.enable == True:
             # bsz, seqlen, _ = x.shape
             # mask2d = attention_mask_2d
             raise ValueError("seq len must set > 1")
@@ -187,10 +187,9 @@ class ResidualDiffLayer(nn.Module):
         device = x.device
 
         if cache_position is not None:
-            # cache_position: [B, L_in] （window 長）
-            end_pos = cache_position[:, -1]  # [B]
+            end_pos = cache_position[-1]  # [B]
             # 各バッチ同一想定（現実装は batch=1 前提）。batch>1でも一貫させるなら gather 等で個別生成も可
-            end_val = int(end_pos[0].item())
+            end_val = int(end_pos.item())
             start_val = end_val - (seqlen - 1)
             pos_ids = (
                 torch.arange(start_val, end_val + 1, device=device)
@@ -299,8 +298,8 @@ class IntegrateUpscaleLayer(nn.Module):
 
         device = x.device
         if cache_position is not None:
-            end_pos = cache_position[:, -1]  # [B]
-            end_val = int(end_pos[0].item())
+            end_pos = cache_position[-1]
+            end_val = int(end_pos.item())
             start_val = end_val - (seqlen - 1)
             pos_ids = (
                 torch.arange(start_val, end_val + 1, device=device)
@@ -593,124 +592,55 @@ class ResidualNetForCausalLM(Phi3PreTrainedModel, GenerationMixin):
     def base_model(self):
         return self.model
 
-    @torch.no_grad()
-    def generate(self, *args, **kwargs):
-        return super().generate(*args, **kwargs, custom_generate=window3_generate)
+    def prepare_inputs_for_generation(
+        self,
+        input_ids: torch.LongTensor,
+        past_key_values: Optional["Cache"] = None,
+        attention_mask: Optional[torch.LongTensor] = None,
+        use_cache: Optional[bool] = None,
+        **kwargs,
+    ):
+        """
+        - prefill（past_key_values None）では全文をそのまま渡し、cache_position = [0..L-1]
+        - decode（past_key_values あり）では直近3トークンだけを入力し、
+          cache_position = [keep_len .. keep_len+Lw-1] とする
+            * t = 直前に確定した末尾 index（= input_ids.size(1)-1）
+            * keep_len = max(0, t-2)
+        - attention_mask は簡単のため 1 埋め（左PAD運用ならそのまま attention_mask を流用）
+        """
+        device = input_ids.device
+        use_cache = True if use_cache is None else use_cache
 
+        if past_key_values is None or not use_cache:
+            # ---- prefill: 全文 ----
+            L = input_ids.size(1)
+            cache_position = torch.arange(0, L, device=device)        # [L]
+            if attention_mask is None:
+                attention_mask = torch.ones_like(input_ids, device=device)
+            return {
+                "input_ids": input_ids,
+                "attention_mask": attention_mask,
+                "past_key_values": past_key_values,
+                "use_cache": use_cache,
+                "cache_position": cache_position,                     # ★ [L]
+            }
 
-def window3_generate(
-    model,
-    input_ids: torch.LongTensor,
-    logits_processor,
-    stopping_criteria,
-    generation_config,
-    synced_gpus,
-    streamer=None,
-    **model_kwargs,
-):
-    """
-    要件：
-      - i 番目の生成は 0..i-1 の文脈（通常のprefill）
-      - i+1 生成時の入力は [i-2, i-1, i]、使用する KV は 0..i-2
-      - i+2 生成時の入力は [i-1, i, i+1]、使用する KV は 0..i-1
-    実現方法：
-      - Cache は in-place 更新。KV の「どこに書くか」は cache_position で制御
-      - マスク/RoPE 整合のため past_kv_len = cache_position[0]
-    依存：
-      - model.forward が (past_key_values=Cache, cache_position=LongTensor) を受け付ける
-      - GenerationMixin.generate() が step 7 で Cache を model_kwargs["past_key_values"] に用意済み
-    """
-    device = input_ids.device
-    batch_size = input_ids.size(0)
-    assert (
-        batch_size == 1
-    ), "window3_decode はまず単一バッチで運用してください（拡張は容易）"
-
-    # 必須前提：use_cache=True（generate() がすでに設定）
-    model_kwargs["use_cache"] = True
-
-    # Cache 取得（デフォルトのキーは "past_key_values"）
-    cache = model_kwargs.get("past_key_values", None)
-    if cache is None:
-        # HFの既定では _prepare_cache_for_generation がここを必ず埋めます
-        raise RuntimeError(
-            "past_key_values (Cache) が見つかりません。generate() の step 7 で設定されている必要があります。"
-        )
-
-    # ---- 1) prefill: 通常の全文脈で i を生成 ----
-    # cache_position は [0..L0-1]
-    seq_len0 = input_ids.size(1)
-    cache_pos = torch.arange(0, seq_len0, device=device).unsqueeze(0)  # [1, L0]
-    model_kwargs["cache_position"] = cache_pos
-    # attention_mask は 1 埋め（左パディング運用ならそのまま 0/1 を渡す）
-    if "attention_mask" not in model_kwargs or model_kwargs["attention_mask"] is None:
-        model_kwargs["attention_mask"] = torch.ones_like(input_ids, device=device)
-
-    outputs = model(
-        input_ids=input_ids,
-        **model_kwargs,
-    )
-    # logits -> processors -> next token（ここは greedy。sampling は必要に応じて拡張）
-    next_token_logits = outputs.logits[:, -1, :]
-    next_token_scores = logits_processor(input_ids, next_token_logits)
-    next_tokens = torch.argmax(next_token_scores, dim=-1, keepdim=True)  # [1,1]
-
-    if streamer is not None:
-        streamer.put(next_tokens.cpu())
-
-    sequences = torch.cat([input_ids, next_tokens], dim=1)  # 0..i
-    # cur_len = sequences.size(1)
-
-    # ---- 2) 以降: 毎回 3 トークン窓で前進、KV は “2つ前まで” を可視に ----
-    # stopping_criteria は generate() 側で組み立て済み
-    while True:
-        # 停止判定（EOS, max_length, 任意の criteria）
-        if stopping_criteria(sequences, None):
-            break
-        if sequences.size(1) >= generation_config.max_length:
-            break
-
-        # 直近 index t（直前に確定した末尾）
-        t = sequences.size(1) - 1  # i, i+1, ...
-
-        # KV を使わせる過去長 keep_len = t-2（= i+1 生成時に i-2 まで）
-        keep_len = max(0, t - 2)
-
-        # 入力は直近3トークン（不足時は短くなるのでそのまま）
-        window = sequences[:, -3:] if sequences.size(1) >= 3 else sequences
-        # この窓を書き込む位置を明示： [keep_len .. keep_len+len(window)-1]
+        # ---- decode: 3トークン窓 ----
+        # input_ids は「これまでの全文」なので、ここで直近3に切る
+        window = input_ids[:, -3:]                                     # [B, Lw<=3]
         Lw = window.size(1)
-        cache_pos = torch.arange(keep_len, keep_len + Lw, device=device).unsqueeze(
-            0
-        )  # [1, Lw]
-        model_kwargs["cache_position"] = cache_pos
-        model_kwargs["attention_mask"] = torch.ones_like(window, device=device)
+        t = input_ids.size(1) - 1                                      # i, i+1, ...
+        keep_len = max(0, t - 2)                                       # 仕様: “2つ前まで”を過去KVとして可視
+        cache_position = torch.arange(keep_len, keep_len + Lw, device=device)  # ★ [Lw]
 
-        # 前進
-        outputs = model(
-            input_ids=window,
-            **model_kwargs,  # past_key_values は同じ Cache（in-place 更新）
-        )
-        next_token_logits = outputs.logits[:, -1, :]
-        next_token_scores = logits_processor(sequences, next_token_logits)
+        # attention_mask は窓に合わせる（左PADを使っているなら適宜スライスに置換）
+        attn = torch.ones_like(window, device=device)
 
-        # greedy（必要に応じて sampling を追加）
-        next_tokens = torch.argmax(next_token_scores, dim=-1, keepdim=True)  # [1,1]
-
-        sequences = torch.cat([sequences, next_tokens], dim=1)
-
-        if streamer is not None:
-            streamer.put(next_tokens.cpu())
-
-    if streamer is not None:
-        streamer.end()
-
-    # return_dict_in_generate を尊重（最低限の互換）
-    if generation_config.return_dict_in_generate:
-        return GenerateDecoderOnlyOutput(
-            sequences=sequences,
-            scores=None,
-            attentions=None,
-            hidden_states=None,
-        )
-    return sequences
+        return {
+            "input_ids": window,
+            "attention_mask": attn,
+            "past_key_values": past_key_values,                         # Cache（in-place更新）
+            "use_cache": use_cache,
+            "cache_position": cache_position,                           # ★ [Lw]
+        }
+    
