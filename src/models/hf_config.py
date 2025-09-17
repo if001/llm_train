@@ -304,9 +304,9 @@ residual_diff = [
     dict(
         name="residual-small",
         vocab_size=50257,  ## llm-jp
-        hidden_size=256,
+        hidden_size=1024,
         intermediate_size=512,
-        num_hidden_layers=8,
+        num_hidden_layers=12,
         num_attention_heads=4,
         num_key_value_heads=None,
         resid_pdrop=0.0,

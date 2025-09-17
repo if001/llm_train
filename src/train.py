@@ -311,7 +311,7 @@ def main():
         resume_from_checkpoint=args.resume_path,
         ignore_data_skip=args.ignore_data_skip,
         tpu_num_cores=args.tpu_num_cores, ## for tpu
-        optim= "adamw_torch" if args.tpu_num_cores else None ## for tpu
+        optim= "adamw_torch" if args.tpu_num_cores else "adamw_torch" ## for tpu
     )
     print("parallel_mode: ", training_args.parallel_mode)
     print("world_size", training_args.world_size)
